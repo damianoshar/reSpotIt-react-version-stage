@@ -35,15 +35,3 @@ npm-debug.log*
 # Android build outputs
 android/**/build/
 android/.gradle/
-
-# Local release signing
-android/keystore.properties
-android/app/app-release.keystore
-
-
-# IDE
-.vs/
-.idea/
-android/.idea/
-android/app/release/
-
