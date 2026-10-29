@@ -10,7 +10,6 @@ dist/
 .env.*.local
 
 # Android / iOS generated projects (regenerated via `npx cap sync`)
-android/
 ios/
 
 # Capacitor
@@ -32,3 +31,19 @@ npm-debug.log*
 
 # IDE
 .vs/
+
+# Android build outputs
+android/**/build/
+android/.gradle/
+
+# Local release signing
+android/keystore.properties
+android/app/app-release.keystore
+
+
+# IDE
+.vs/
+.idea/
+android/.idea/
+android/app/release/
+
