@@ -158,6 +158,7 @@ export default function App() {
 
   const [modal,       setModal]       = useState<ActiveModal>(null);
   const [queueBusy,   setQueueBusy]   = useState(false);
+  const [removeBusy,  setRemoveBusy]  = useState(false);
   const [plQueueBusy, setPlQueueBusy] = useState(false);
   const [gridSize,    setGridSize]    = useState(160);
   const [viewMode,     setViewMode]     = useState<ViewMode>('grid');
@@ -298,6 +299,25 @@ export default function App() {
     setDuplicateGroups(findDuplicates(all.filter((album) => !hiddenIds.has(album.id))));
     showToast(`Permanently removed ${ids.length} duplicate album(s) from Spotify.`, true);
   }, [lib]);
+
+  const handleRemoveSelectedFromLibrary = useCallback(async () => {
+    const ids = [...sel.selected];
+    if (!ids.length) return;
+    const confirmed = window.confirm(
+      'Remove ' + ids.length + ' selected album(s) from this library? This does not remove them from Spotify.',
+    );
+    if (!confirmed) return;
+    setRemoveBusy(true);
+    try {
+      await lib.deleteLocalAlbums(ids);
+      sel.clear();
+      showToast('Removed ' + ids.length + ' album(s) from the library.', true);
+    } catch (e: any) {
+      showToast(e?.message ?? 'Could not remove albums from the library.', false);
+    } finally {
+      setRemoveBusy(false);
+    }
+  }, [sel, lib, showToast]);
 
   const handleFollowLibraryArtists = useCallback(async () => {
     const confirmed = window.confirm(
@@ -1048,6 +1068,8 @@ export default function App() {
         onPlaylist={() => setModal('playlist')}
         onClear={sel.clear}
         busy={queueBusy}
+        onRemove={!isRemote ? handleRemoveSelectedFromLibrary : undefined}
+        removing={removeBusy}
         hasLocalQueue={!!player.localQueue}
         localQueueBusy={player.localBusy}
         activeQueueBusy={player.mergeBusy}

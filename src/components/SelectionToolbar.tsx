@@ -82,7 +82,7 @@ export const SelectionToolbar: React.FC<Props> = ({
 
           {onRemove && (
             <button className="sel-btn sel-btn--danger" onClick={onRemove}
-                    disabled={busy || removing} title="Remove selected albums from this playlist">
+                    disabled={busy || removing} title="Remove selected albums from this library">
               {removing ? 'Removing…' : 'Remove'}
             </button>
           )}
