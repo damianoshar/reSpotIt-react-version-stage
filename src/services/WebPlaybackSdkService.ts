@@ -391,6 +391,101 @@ export async function transferPlaybackToDevice(
   }
 }
 
+interface PlaybackSnapshot {
+  wasPlaying: boolean;
+  itemUri: string | null;
+  contextUri: string | null;
+  progressMs: number;
+  deviceId: string | null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function fetchPlaybackSnapshot(token: string): Promise<PlaybackSnapshot> {
+  const empty: PlaybackSnapshot = {
+    wasPlaying: false,
+    itemUri: null,
+    contextUri: null,
+    progressMs: 0,
+    deviceId: null,
+  };
+  try {
+    const response = await fetch('https://api.spotify.com/v1/me/player', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok || response.status === 204) return empty;
+    const data = await response.json() as {
+      is_playing?: boolean;
+      progress_ms?: number;
+      item?: { uri?: string };
+      context?: { uri?: string };
+      device?: { id?: string };
+    };
+    return {
+      wasPlaying: Boolean(data.is_playing),
+      itemUri: data.item?.uri ?? null,
+      contextUri: data.context?.uri ?? null,
+      progressMs: data.progress_ms ?? 0,
+      deviceId: data.device?.id ?? null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+async function waitForActiveDevice(
+  token: string,
+  targetDeviceId: string,
+  timeoutMs = 8000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snapshot = await fetchPlaybackSnapshot(token);
+    if (snapshot.deviceId === targetDeviceId) return true;
+    await sleep(250);
+  }
+  return false;
+}
+
+async function playOnDevice(
+  token: string,
+  deviceId: string,
+  body: Record<string, unknown>,
+): Promise<void> {
+  const response = await fetch(
+    `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok && response.status !== 204) {
+    const text = await response.text();
+    throw new Error(`Spotify play failed (${response.status}): ${text}`);
+  }
+}
+
+async function waitForTrack(
+  token: string,
+  targetDeviceId: string,
+  expectedUri: string,
+  timeoutMs = 6000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snapshot = await fetchPlaybackSnapshot(token);
+    if (snapshot.deviceId === targetDeviceId && snapshot.itemUri === expectedUri) return true;
+    await sleep(250);
+  }
+  return false;
+}
+
 export async function transferPlaybackToDeviceAndResume(
   targetDeviceId: string,
   getToken?: () => Promise<string>,
@@ -398,29 +493,7 @@ export async function transferPlaybackToDeviceAndResume(
   const token = getToken ? await getToken() : tokenGetter ? await tokenGetter() : null;
   if (!token) throw new Error('Spotify token is not available.');
 
-  let wasPlaying = false;
-  let itemUri: string | null = null;
-  let contextUri: string | null = null;
-  let progressMs = 0;
-  try {
-    const stateRes = await fetch('https://api.spotify.com/v1/me/player', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (stateRes.ok && stateRes.status !== 204) {
-      const data = await stateRes.json() as {
-        is_playing?: boolean;
-        progress_ms?: number;
-        item?: { uri?: string };
-        context?: { uri?: string };
-      };
-      wasPlaying = Boolean(data.is_playing);
-      itemUri = data.item?.uri ?? null;
-      contextUri = data.context?.uri ?? null;
-      progressMs = data.progress_ms ?? 0;
-    }
-  } catch {
-    // Fall through to a plain transfer.
-  }
+  const snapshot = await fetchPlaybackSnapshot(token);
 
   const transferRes = await fetch('https://api.spotify.com/v1/me/player', {
     method: 'PUT',
@@ -435,28 +508,37 @@ export async function transferPlaybackToDeviceAndResume(
     throw new Error(`Spotify device transfer failed (${transferRes.status}): ${text}`);
   }
 
-  if (!wasPlaying) return;
+  if (!snapshot.wasPlaying) return;
 
-  const playUrl = `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(targetDeviceId)}`;
+  // Give Spotify Connect time to make the target the active device before
+  // issuing the explicit play. Playing too early can start the target's own
+  // stale queue and skip tracks.
+  await waitForActiveDevice(token, targetDeviceId);
+
   const body: Record<string, unknown> = {};
-  if (contextUri) {
-    body.context_uri = contextUri;
-    if (itemUri) body.offset = { uri: itemUri };
-  } else if (itemUri) {
-    body.uris = [itemUri];
+  if (snapshot.contextUri) {
+    body.context_uri = snapshot.contextUri;
+    if (snapshot.itemUri) body.offset = { uri: snapshot.itemUri };
+  } else if (snapshot.itemUri) {
+    body.uris = [snapshot.itemUri];
   }
-  if (progressMs > 0) body.position_ms = progressMs;
+  if (snapshot.progressMs > 0) body.position_ms = snapshot.progressMs;
 
-  const playRes = await fetch(playUrl, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
+  await playOnDevice(token, targetDeviceId, body);
+
+  if (!snapshot.itemUri) return;
+
+  const matched = await waitForTrack(token, targetDeviceId, snapshot.itemUri);
+  if (matched) return;
+
+  // The context/offset can resolve to a different duplicate. Fall back to an
+  // explicit single-track play so the transfer never skips ahead.
+  await playOnDevice(token, targetDeviceId, {
+    uris: [snapshot.itemUri],
+    ...(snapshot.progressMs > 0 ? { position_ms: snapshot.progressMs } : {}),
   });
-  if (!playRes.ok && playRes.status !== 204) {
-    const text = await playRes.text();
-    throw new Error(`Spotify play failed (${playRes.status}): ${text}`);
+
+  if (!await waitForTrack(token, targetDeviceId, snapshot.itemUri)) {
+    throw new Error('Playback transferred, but the target device did not resume the expected track.');
   }
 }

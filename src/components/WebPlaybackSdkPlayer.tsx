@@ -115,6 +115,23 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
     catch (error) { setMessage(error instanceof Error ? error.message : 'Volume change failed.'); }
   };
 
+  const waitForSdkReady = (timeoutMs = 8000): Promise<boolean> => new Promise((resolve) => {
+    if (getWebPlaybackSdkState().ready) {
+      resolve(true);
+      return;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      if (getWebPlaybackSdkState().ready) {
+        window.clearInterval(timer);
+        resolve(true);
+      } else if (Date.now() - started > timeoutMs) {
+        window.clearInterval(timer);
+        resolve(false);
+      }
+    }, 200);
+  });
+
   const selectDevice = async (targetDeviceId: string) => {
     setSelectedDeviceId(targetDeviceId);
     if (!targetDeviceId) {
@@ -129,6 +146,12 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
     setDeviceBusy(true);
     setMessage('');
     try {
+      // Unlock the SDK audio element while the tap is still a user gesture.
+      await activateWebPlaybackElement();
+      if (targetDeviceId === state.deviceId && !state.ready) {
+        await connect(true);
+        await waitForSdkReady();
+      }
       await transferPlaybackToDeviceAndResume(targetDeviceId, async () => getValidAccessToken());
       await loadDevices(true);
       const device = devices.find((item) => item.id === targetDeviceId);
