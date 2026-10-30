@@ -960,6 +960,12 @@ export default function App() {
           <PlayerView
             player={player}
             authState={auth.authState}
+            onRequestLocalCreate={() => requestLocalCreate([])}
+            onRequestLocalReset={requestLocalReset}
+            onRequestLocalClear={requestLocalClear}
+            onRequestMergeCreate={requestMergeCreate}
+            onRequestMergeNew={requestMergeNew}
+            onRequestMergeReset={requestMergeReset}
           />
         )}
       </main>

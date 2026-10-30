@@ -248,20 +248,71 @@ export async function playWithWebPlaybackSdk(uris: string[], getToken?: () => Pr
   setState({ error: null });
 }
 
+async function getToken(): Promise<string> {
+  if (!tokenGetter) throw new Error('Spotify token is not available.');
+  const token = await tokenGetter();
+  if (!token) throw new Error('Spotify token is not available.');
+  return token;
+}
+
 export async function toggleWebPlayback(): Promise<void> {
-  await player?.togglePlay?.();
+  const token = await getToken();
+  const endpoint = state.playing ? 'pause' : 'play';
+  const url = deviceId
+    ? `https://api.spotify.com/v1/me/player/${endpoint}?device_id=${encodeURIComponent(deviceId)}`
+    : `https://api.spotify.com/v1/me/player/${endpoint}`;
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok && response.status !== 204) {
+    const text = await response.text();
+    throw new Error(`Spotify ${endpoint} failed (${response.status}): ${text}`);
+  }
+  try { await player?.togglePlay?.(); } catch { /* ignore */ }
 }
 
 export async function nextWebPlayback(): Promise<void> {
-  await player?.nextTrack?.();
+  const token = await getToken();
+  const response = await fetch('https://api.spotify.com/v1/me/player/next', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok && response.status !== 204) {
+    const text = await response.text();
+    throw new Error(`Spotify next failed (${response.status}): ${text}`);
+  }
+  try { await player?.nextTrack?.(); } catch { /* ignore */ }
 }
 
 export async function previousWebPlayback(): Promise<void> {
-  await player?.previousTrack?.();
+  const token = await getToken();
+  const response = await fetch('https://api.spotify.com/v1/me/player/previous', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok && response.status !== 204) {
+    const text = await response.text();
+    throw new Error(`Spotify previous failed (${response.status}): ${text}`);
+  }
+  try { await player?.previousTrack?.(); } catch { /* ignore */ }
 }
 
 export async function seekWebPlayback(value: number): Promise<void> {
-  await player?.seek?.(Number(value));
+  const token = await getToken();
+  const positionMs = Number(value);
+  const url = deviceId
+    ? `https://api.spotify.com/v1/me/player/seek?position_ms=${positionMs}&device_id=${encodeURIComponent(deviceId)}`
+    : `https://api.spotify.com/v1/me/player/seek?position_ms=${positionMs}`;
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok && response.status !== 204) {
+    const text = await response.text();
+    throw new Error(`Spotify seek failed (${response.status}): ${text}`);
+  }
+  try { await player?.seek?.(positionMs); } catch { /* ignore */ }
 }
 
 export async function setWebPlaybackVolume(value: number): Promise<void> {
