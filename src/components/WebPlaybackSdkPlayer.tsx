@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getValidAccessToken } from '../services/SpotifyAuthService';
 import {
+  activateWebPlaybackElement,
   getSpotifyPlaybackDevices,
   getWebPlaybackSdkState,
   initWebPlaybackSdk,
@@ -27,6 +28,7 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
   const [devices, setDevices] = useState<SpotifyPlaybackDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [deviceBusy, setDeviceBusy] = useState(false);
+  const deviceBusyRef = useRef(false);
   const autoConnectStarted = useRef(false);
 
   useEffect(() => subscribeWebPlaybackSdk(setState), []);
@@ -41,10 +43,10 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
         if (silent && JSON.stringify(current) === JSON.stringify(list)) return current;
         return list;
       });
-      const preferred = list.find((device) => device.id === state.deviceId)
-        ?? list.find((device) => device.is_active)
+      const preferred = list.find((device) => device.is_active)
+        ?? list.find((device) => device.id === state.deviceId)
         ?? list[0];
-      if (preferred && !selectedDeviceId) setSelectedDeviceId(preferred.id);
+      if (preferred && !deviceBusyRef.current) setSelectedDeviceId(preferred.id);
       if (!silent) setMessage(`Loaded ${list.length} Spotify device${list.length === 1 ? '' : 's'}.`);
     } catch (error) {
       if (!silent) setMessage(error instanceof Error ? error.message : 'Could not load Spotify devices.');
@@ -53,11 +55,12 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
     }
   };
 
-  const connect = async () => {
+  const connect = async (activate = false) => {
     setBusy(true);
     setMessage('');
     try {
       const deviceId = await initWebPlaybackSdk(async () => getValidAccessToken());
+      if (activate) await activateWebPlaybackElement();
       await loadDevices(false);
       setMessage('Connected to the Web Playback SDK.');
     } catch (error) {
@@ -112,21 +115,28 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
     catch (error) { setMessage(error instanceof Error ? error.message : 'Volume change failed.'); }
   };
 
-  const connectToDevice = async (targetDeviceId: string) => {
+  const selectDevice = async (targetDeviceId: string) => {
+    setSelectedDeviceId(targetDeviceId);
     if (!targetDeviceId) {
       setMessage('Select a device first.');
       return;
     }
+    if (devices.find((device) => device.id === targetDeviceId)?.is_active) {
+      setMessage('Playback is already on this device.');
+      return;
+    }
+    deviceBusyRef.current = true;
     setDeviceBusy(true);
     setMessage('');
     try {
       await transferPlaybackToDeviceAndResume(targetDeviceId, async () => getValidAccessToken());
       await loadDevices(true);
       const device = devices.find((item) => item.id === targetDeviceId);
-      setMessage(`Connected to ${device?.name ?? 'selected device'}.`);
+      setMessage(`Playback moved to ${device?.name ?? 'selected device'}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not connect to the selected device.');
+      setMessage(error instanceof Error ? error.message : 'Could not move playback to the selected device.');
     } finally {
+      deviceBusyRef.current = false;
       setDeviceBusy(false);
     }
   };
@@ -140,7 +150,7 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
           <h3>Web Playback SDK</h3>
           <p className="local-player-sub">Full tracks through Spotify's official browser player.</p>
         </div>
-        <button type="button" className="local-toggle" onClick={() => void connect()} disabled={busy}>
+        <button type="button" className="local-toggle" onClick={() => void connect(true)} disabled={busy}>
           <span className={`local-status-dot ${state.ready ? 'is-on' : ''}`} aria-hidden="true" />
           <span>{state.ready ? 'Reconnect' : 'Connect'}</span>
         </button>
@@ -258,11 +268,14 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
             {deviceBusy ? 'Loading devices…' : 'Refresh devices'}
           </button>
         </div>
+        <p className="local-player-hint" style={{ marginTop: '0.35rem' }}>
+          Playing on: {devices.find((device) => device.is_active)?.name ?? 'no active device'}
+        </p>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.5rem' }}>
           <select
             className="filter-input"
             value={selectedDeviceId}
-            onChange={(e) => setSelectedDeviceId(e.target.value)}
+            onChange={(e) => void selectDevice(e.target.value)}
             disabled={deviceBusy || devices.length === 0}
             style={{ flex: 1, minWidth: 220, backgroundColor: '#181818', color: '#ffffff', borderColor: '#333333' }}
           >
@@ -273,9 +286,6 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
               </option>
             ))}
           </select>
-          <button type="button" className="local-control-btn" onClick={() => void connectToDevice(selectedDeviceId)} disabled={deviceBusy || !selectedDeviceId}>
-            Connect to device
-          </button>
         </div>
       </div>
 

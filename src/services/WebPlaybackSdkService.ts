@@ -13,6 +13,7 @@ interface SdkPlayer {
   nextTrack(): Promise<void>;
   previousTrack(): Promise<void>;
   seek(positionMs: number): Promise<void>;
+  activateElement(): Promise<void>;
 }
 
 declare global {
@@ -143,6 +144,9 @@ export async function initWebPlaybackSdk(getToken?: () => Promise<string>): Prom
     player.addListener('account_error', () => {
       setState({ error: 'Spotify Premium is required for the Web Playback SDK.' });
     });
+    player.addListener('autoplay_failed', () => {
+      setState({ error: 'Autoplay is blocked. Tap Connect to activate playback on this device.' });
+    });
     player.addListener('player_state_changed', (sdkState: any) => {
       if (!sdkState) return;
       const current = sdkState.track_window?.current_track;
@@ -257,8 +261,11 @@ async function getToken(): Promise<string> {
   return token;
 }
 
-export async function toggleWebPlayback(): Promise<void> {
-  const token = await getToken();
+export async function activateWebPlaybackElement(): Promise<void> {
+  try { await player?.activateElement?.(); } catch { /* ignore */ }
+}
+
+export async function toggleWebPlayback(): Promise<void> {  const token = await getToken();
   const endpoint = state.playing ? 'pause' : 'play';
   const url = deviceId
     ? `https://api.spotify.com/v1/me/player/${endpoint}?device_id=${encodeURIComponent(deviceId)}`
