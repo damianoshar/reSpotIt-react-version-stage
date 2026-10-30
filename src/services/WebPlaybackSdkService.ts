@@ -380,3 +380,73 @@ export async function transferPlaybackToDevice(
     throw new Error(`Spotify device transfer failed (${response.status}): ${text}`);
   }
 }
+
+export async function transferPlaybackToDeviceAndResume(
+  targetDeviceId: string,
+  getToken?: () => Promise<string>,
+): Promise<void> {
+  const token = getToken ? await getToken() : tokenGetter ? await tokenGetter() : null;
+  if (!token) throw new Error('Spotify token is not available.');
+
+  let wasPlaying = false;
+  let itemUri: string | null = null;
+  let contextUri: string | null = null;
+  let progressMs = 0;
+  try {
+    const stateRes = await fetch('https://api.spotify.com/v1/me/player', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (stateRes.ok && stateRes.status !== 204) {
+      const data = await stateRes.json() as {
+        is_playing?: boolean;
+        progress_ms?: number;
+        item?: { uri?: string };
+        context?: { uri?: string };
+      };
+      wasPlaying = Boolean(data.is_playing);
+      itemUri = data.item?.uri ?? null;
+      contextUri = data.context?.uri ?? null;
+      progressMs = data.progress_ms ?? 0;
+    }
+  } catch {
+    // Fall through to a plain transfer.
+  }
+
+  const transferRes = await fetch('https://api.spotify.com/v1/me/player', {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ device_ids: [targetDeviceId], play: false }),
+  });
+  if (!transferRes.ok && transferRes.status !== 204) {
+    const text = await transferRes.text();
+    throw new Error(`Spotify device transfer failed (${transferRes.status}): ${text}`);
+  }
+
+  if (!wasPlaying) return;
+
+  const playUrl = `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(targetDeviceId)}`;
+  const body: Record<string, unknown> = {};
+  if (contextUri) {
+    body.context_uri = contextUri;
+    if (itemUri) body.offset = { uri: itemUri };
+  } else if (itemUri) {
+    body.uris = [itemUri];
+  }
+  if (progressMs > 0) body.position_ms = progressMs;
+
+  const playRes = await fetch(playUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!playRes.ok && playRes.status !== 204) {
+    const text = await playRes.text();
+    throw new Error(`Spotify play failed (${playRes.status}): ${text}`);
+  }
+}

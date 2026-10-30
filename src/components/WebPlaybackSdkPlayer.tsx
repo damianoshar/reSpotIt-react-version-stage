@@ -11,7 +11,7 @@ import {
   setWebPlaybackVolume,
   subscribeWebPlaybackSdk,
   toggleWebPlayback,
-  transferPlaybackToDevice,
+  transferPlaybackToDeviceAndResume,
   type SpotifyPlaybackDevice,
 } from '../services/WebPlaybackSdkService';
 
@@ -120,7 +120,7 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
     setDeviceBusy(true);
     setMessage('');
     try {
-      await transferPlaybackToDevice(targetDeviceId, async () => getValidAccessToken(), true);
+      await transferPlaybackToDeviceAndResume(targetDeviceId, async () => getValidAccessToken());
       await loadDevices(true);
       const device = devices.find((item) => item.id === targetDeviceId);
       setMessage(`Connected to ${device?.name ?? 'selected device'}.`);
