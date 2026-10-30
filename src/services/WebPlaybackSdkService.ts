@@ -265,7 +265,8 @@ export async function activateWebPlaybackElement(): Promise<void> {
   try { await player?.activateElement?.(); } catch { /* ignore */ }
 }
 
-export async function toggleWebPlayback(): Promise<void> {  const token = await getToken();
+export async function toggleWebPlayback(): Promise<void> {
+  const token = await getToken();
   const endpoint = state.playing ? 'pause' : 'play';
   const url = deviceId
     ? `https://api.spotify.com/v1/me/player/${endpoint}?device_id=${encodeURIComponent(deviceId)}`
