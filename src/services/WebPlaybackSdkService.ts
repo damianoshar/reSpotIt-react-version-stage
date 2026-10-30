@@ -205,19 +205,24 @@ export async function initWebPlaybackSdk(getToken?: () => Promise<string>): Prom
       setState({ ready: false });
     });
     player.addListener('initialization_error', ({ message }: { message: string }) => {
+      console.warn(`[spotify-sdk] initialization_error: ${message}`);
       setState({ error: message });
     });
     player.addListener('authentication_error', ({ message }: { message: string }) => {
+      console.warn(`[spotify-sdk] authentication_error: ${message}`);
       setState({ error: message });
     });
     player.addListener('account_error', () => {
+      console.warn('[spotify-sdk] account_error: Premium required');
       setState({ error: 'Spotify Premium is required for the Web Playback SDK.' });
     });
     player.addListener('autoplay_failed', () => {
+      console.warn('[spotify-sdk] autoplay_failed');
       setState({ error: 'Autoplay is blocked. Tap Connect to activate playback on this device.' });
     });
     player.addListener('playback_error', ({ message }: { message: string }) => {
-      // Surfaced in the player so a stalling/jumping stream reports why.
+      // Also goes to logcat so the exact SDK message can be pulled with adb.
+      console.warn(`[spotify-sdk] playback_error: ${message}`);
       setState({ playbackError: message || 'Spotify reported a playback error on this device.' });
     });
     player.addListener('player_state_changed', (sdkState: any) => {
