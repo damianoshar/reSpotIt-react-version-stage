@@ -48,6 +48,7 @@ export interface WebPlaybackSdkState {
   ready: boolean;
   deviceId: string | null;
   error: string | null;
+  playbackError: string | null;
   playing: boolean;
   track: WebPlaybackSdkTrack | null;
   nextTracks: WebPlaybackSdkTrack[];
@@ -60,6 +61,7 @@ let state: WebPlaybackSdkState = {
   ready: false,
   deviceId: null,
   error: null,
+  playbackError: null,
   playing: false,
   track: null,
   nextTracks: [],
@@ -87,6 +89,74 @@ export function subscribeWebPlaybackSdk(listener: (state: WebPlaybackSdkState) =
 
 export function setWebPlaybackSdkTokenGetter(getter: () => Promise<string>): void {
   tokenGetter = getter;
+}
+
+export interface WebPlaybackCapabilities {
+  /** Encrypted Media Extensions are exposed at all. */
+  eme: boolean;
+  /** Key system the SDK will end up using, if any. */
+  keySystem: string | null;
+  /** DRM robustness actually granted by the device. */
+  robustness: string | null;
+  audioCodecs: string[];
+  webViewVersion: string | null;
+  secureContext: boolean;
+  checkedAt: number;
+}
+
+function detectChromiumVersion(): string | null {
+  const match = navigator.userAgent.match(/Chrome\/([\d.]+)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Report what the current WebView can actually decrypt.
+ *
+ * The Web Playback SDK streams through EME/Widevine, so a device that answers
+ * `requestMediaKeySystemAccess` with a weaker robustness (or not at all) is the
+ * usual explanation for audio that stalls or jumps forward mid-track.
+ */
+export async function probeWebPlaybackCapabilities(): Promise<WebPlaybackCapabilities> {
+  const capabilities: WebPlaybackCapabilities = {
+    eme: typeof navigator !== 'undefined' && typeof navigator.requestMediaKeySystemAccess === 'function',
+    keySystem: null,
+    robustness: null,
+    audioCodecs: [],
+    webViewVersion: detectChromiumVersion(),
+    secureContext: typeof window !== 'undefined' ? Boolean(window.isSecureContext) : false,
+    checkedAt: Date.now(),
+  };
+  if (!capabilities.eme) return capabilities;
+
+  const configurations: MediaKeySystemConfiguration[] = [
+    {
+      initDataTypes: ['cenc'],
+      audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"', robustness: 'SW_SECURE_CRYPTO' }],
+    },
+    {
+      initDataTypes: ['cenc'],
+      audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"' }],
+    },
+  ];
+
+  for (const keySystem of ['com.widevine.alpha', 'com.microsoft.playready', 'org.w3.clearkey']) {
+    for (const configuration of configurations) {
+      try {
+        const access = await navigator.requestMediaKeySystemAccess(keySystem, [configuration]);
+        const granted = access.getConfiguration();
+        capabilities.keySystem = keySystem;
+        capabilities.robustness = granted.audioCapabilities?.[0]?.robustness || null;
+        capabilities.audioCodecs = (granted.audioCapabilities ?? [])
+          .map((item) => item.contentType)
+          .filter((contentType): contentType is string => Boolean(contentType));
+        return capabilities;
+      } catch {
+        // Try the next configuration, then the next key system.
+      }
+    }
+  }
+
+  return capabilities;
 }
 
 function loadSdk(): Promise<void> {
@@ -131,8 +201,7 @@ export async function initWebPlaybackSdk(getToken?: () => Promise<string>): Prom
     player.addListener('ready', ({ device_id }: { device_id: string }) => {
       deviceId = device_id;
       setState({ ready: true, deviceId: device_id, error: null });
-    });
-    player.addListener('not_ready', () => {
+    });    player.addListener('not_ready', () => {
       setState({ ready: false });
     });
     player.addListener('initialization_error', ({ message }: { message: string }) => {
@@ -146,6 +215,10 @@ export async function initWebPlaybackSdk(getToken?: () => Promise<string>): Prom
     });
     player.addListener('autoplay_failed', () => {
       setState({ error: 'Autoplay is blocked. Tap Connect to activate playback on this device.' });
+    });
+    player.addListener('playback_error', ({ message }: { message: string }) => {
+      // Surfaced in the player so a stalling/jumping stream reports why.
+      setState({ playbackError: message || 'Spotify reported a playback error on this device.' });
     });
     player.addListener('player_state_changed', (sdkState: any) => {
       if (!sdkState) return;
@@ -340,7 +413,7 @@ export function disconnectWebPlaybackSdk(): void {
   player = null;
   deviceId = null;
   readyPromise = null;
-  state = { ready: false, deviceId: null, error: null, playing: false, track: null, nextTracks: [], position: 0, duration: 0, volume: 0.5 };
+  state = { ready: false, deviceId: null, error: null, playbackError: null, playing: false, track: null, nextTracks: [], position: 0, duration: 0, volume: 0.5 };
   listeners.forEach((listener) => listener(state));
 }
 

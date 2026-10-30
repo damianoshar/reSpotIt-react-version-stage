@@ -8,12 +8,14 @@ import {
   nextWebPlayback,
   playWithWebPlaybackSdk,
   previousWebPlayback,
+  probeWebPlaybackCapabilities,
   seekWebPlayback,
   setWebPlaybackVolume,
   subscribeWebPlaybackSdk,
   toggleWebPlayback,
   transferPlaybackToDeviceAndResume,
   type SpotifyPlaybackDevice,
+  type WebPlaybackCapabilities,
 } from '../services/WebPlaybackSdkService';
 
 function formatMs(ms: number): string {
@@ -28,10 +30,19 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
   const [devices, setDevices] = useState<SpotifyPlaybackDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [deviceBusy, setDeviceBusy] = useState(false);
+  const [capabilities, setCapabilities] = useState<WebPlaybackCapabilities | null>(null);
   const deviceBusyRef = useRef(false);
   const autoConnectStarted = useRef(false);
 
   useEffect(() => subscribeWebPlaybackSdk(setState), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void probeWebPlaybackCapabilities()
+      .then((result) => { if (!cancelled) setCapabilities(result); })
+      .catch(() => { if (!cancelled) setCapabilities(null); });
+    return () => { cancelled = true; };
+  }, []);
 
   const loadDevices = async (silent = false) => {
     if (deviceBusy && !silent) return;
@@ -185,7 +196,22 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
         <span>Web SDK device: {state.ready ? 'connected' : 'not connected'}</span>
       </div>
 
+      {capabilities && (
+        <p className="local-player-hint" style={{ marginTop: '0.35rem' }}>
+          DRM:{' '}
+          {capabilities.keySystem
+            ? `${capabilities.keySystem}${capabilities.robustness ? ` (${capabilities.robustness})` : ' (default robustness)'}`
+            : 'not available'}
+          {' · '}WebView {capabilities.webViewVersion ?? 'unknown'}
+        </p>
+      )}
+
       {state.error && <div className="player-error local-player-error" role="alert">{state.error}</div>}
+      {state.playbackError && (
+        <div className="player-error local-player-error" role="alert">
+          Playback error: {state.playbackError}
+        </div>
+      )}
 
       {state.track ? (
         <div className="player-now">
@@ -312,7 +338,6 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
         </div>
       </div>
 
-      {state.error && <div className="player-error local-player-error" role="alert">{state.error}</div>}
       {message && <div className="local-player-hint">{message}</div>}
     </section>
   );
