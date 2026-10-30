@@ -22,6 +22,7 @@ declare global {
         name: string;
         getOAuthToken: (callback: (token: string) => void) => void;
         volume?: number;
+        enableMediaSession?: boolean;
       }) => SdkPlayer;
     };
     __spotifyWebPlaybackSdkPromise?: Promise<void>;
@@ -123,6 +124,7 @@ export async function initWebPlaybackSdk(getToken?: () => Promise<string>): Prom
           });
       },
       volume: 0.5,
+      enableMediaSession: true,
     });
 
     player.addListener('ready', ({ device_id }: { device_id: string }) => {
