@@ -1,6 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getValidAccessToken } from '../services/SpotifyAuthService';
 import {
+  getPlaybackTuningStatus,
+  isPlaybackTuningAvailable,
+  requestBatteryOptimizationExemption,
+  setKeepScreenOn,
+  type PlaybackTuningStatus,
+} from '../services/playbackTuning';
+import {
   activateWebPlaybackElement,
   getSpotifyPlaybackDevices,
   getWebPlaybackSdkState,
@@ -31,6 +38,9 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [deviceBusy, setDeviceBusy] = useState(false);
   const [capabilities, setCapabilities] = useState<WebPlaybackCapabilities | null>(null);
+  const [tuning, setTuning] = useState<PlaybackTuningStatus | null>(null);
+  const [keepScreenOn, setKeepScreenOnState] = useState(false);
+  const [tuningBusy, setTuningBusy] = useState(false);
   const deviceBusyRef = useRef(false);
   const autoConnectStarted = useRef(false);
 
@@ -43,6 +53,47 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
       .catch(() => { if (!cancelled) setCapabilities(null); });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    const refresh = () => {
+      void getPlaybackTuningStatus()
+        .then((status) => {
+          setTuning(status);
+          setKeepScreenOnState(status.keepScreenOn);
+        })
+        .catch(() => setTuning(null));
+    };
+    refresh();
+    // The user leaves the app to change the system setting; re-read on return.
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
+
+  const enableBatteryExemption = async () => {
+    setTuningBusy(true);
+    try {
+      await requestBatteryOptimizationExemption();
+      setMessage('Allow reSpotIt to run without restrictions, then return to the app.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not open battery settings.');
+    } finally {
+      setTuningBusy(false);
+    }
+  };
+
+  const toggleKeepScreenOn = async (next: boolean) => {
+    setKeepScreenOnState(next);
+    try {
+      await setKeepScreenOn(next);
+    } catch (error) {
+      setKeepScreenOnState(!next);
+      setMessage(error instanceof Error ? error.message : 'Could not change the screen setting.');
+    }
+  };
 
   const loadDevices = async (silent = false) => {
     if (deviceBusy && !silent) return;
@@ -337,6 +388,38 @@ export const WebPlaybackSdkPlayer: React.FC = () => {
           </select>
         </div>
       </div>
+
+      {isPlaybackTuningAvailable() && tuning && (
+        <div style={{ marginTop: '0.85rem' }}>
+          <div className="local-player-foot">
+            <span>Playback stability</span>
+          </div>
+          {!tuning.ignoringBatteryOptimizations && (
+            <p className="local-player-hint" style={{ marginTop: '0.35rem' }} role="status">
+              Battery optimisation is on. Android can throttle the player and make tracks jump.{' '}
+              <button
+                type="button"
+                className="local-link"
+                onClick={() => void enableBatteryExemption()}
+                disabled={tuningBusy}
+              >
+                {tuningBusy ? 'Opening…' : 'Switch it off'}
+              </button>
+            </p>
+          )}
+          <label
+            className="local-player-hint"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.35rem' }}
+          >
+            <input
+              type="checkbox"
+              checked={keepScreenOn}
+              onChange={(event) => void toggleKeepScreenOn(event.target.checked)}
+            />
+            Keep the screen on while playing
+          </label>
+        </div>
+      )}
 
       {message && <div className="local-player-hint">{message}</div>}
     </section>

@@ -12,6 +12,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CapacitorSQLitePlugin.class);
         registerPlugin(FilePickerPlugin.class);
         registerPlugin(AddFromSitePlugin.class);
+        registerPlugin(PlaybackTuningPlugin.class);
         registerPlugin(LibrespotPlayerPlugin.class);
         // Browser, App, Preferences auto-register via @CapacitorPlugin annotation
         super.onCreate(savedInstanceState);
