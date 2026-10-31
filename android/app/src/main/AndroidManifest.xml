@@ -39,6 +39,13 @@
                     android:host="callback" />
             </intent-filter>
 
+            <!-- Share sheet: any text/URL shared from a browser opens Add from site -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
         </activity>
 
         <provider
