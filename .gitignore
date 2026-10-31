@@ -1,0 +1,40 @@
+﻿# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment β€” NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Android / iOS generated projects (regenerated via `npx cap sync`)
+ios/
+
+# Capacitor
+.capacitor/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vs/
+
+# Android build outputs
+android/**/build/
+android/.gradle/
+
+docs/
+

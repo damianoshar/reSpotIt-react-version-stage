@@ -1,0 +1,415 @@
+﻿import React, { useEffect, useRef, useState } from 'react';
+import { getValidAccessToken } from '../services/SpotifyAuthService';
+import {
+  getPlaybackTuningStatus,
+  isPlaybackTuningAvailable,
+  openBatteryOptimizationSettings,
+  requestBatteryOptimizationExemption,
+  setKeepScreenOn,
+  type PlaybackTuningStatus,
+} from '../services/playbackTuning';
+import {
+  activateWebPlaybackElement,
+  getSpotifyPlaybackDevices,
+  getWebPlaybackSdkState,
+  initWebPlaybackSdk,
+  nextWebPlayback,
+  playWithWebPlaybackSdk,
+  previousWebPlayback,
+  seekWebPlayback,
+  setWebPlaybackVolume,
+  subscribeWebPlaybackSdk,
+  toggleWebPlayback,
+  transferPlaybackToDeviceAndResume,
+  type SpotifyPlaybackDevice,
+} from '../services/WebPlaybackSdkService';
+
+function formatMs(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+export const WebPlaybackSdkPlayer: React.FC = () => {
+  const [state, setState] = useState(getWebPlaybackSdkState());
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [devices, setDevices] = useState<SpotifyPlaybackDevice[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState('');
+  const [deviceBusy, setDeviceBusy] = useState(false);
+  const [tuning, setTuning] = useState<PlaybackTuningStatus | null>(null);
+  const [keepScreenOn, setKeepScreenOnState] = useState(false);
+  const [tuningBusy, setTuningBusy] = useState(false);
+  const deviceBusyRef = useRef(false);
+  const autoConnectStarted = useRef(false);
+
+  useEffect(() => subscribeWebPlaybackSdk(setState), []);
+
+  useEffect(() => {
+    const refresh = () => {
+      void getPlaybackTuningStatus()
+        .then((status) => {
+          setTuning(status);
+          setKeepScreenOnState(status.keepScreenOn);
+        })
+        .catch(() => setTuning(null));
+    };
+    refresh();
+    // The user leaves the app to change the system setting; re-read on return.
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
+
+  const changeBatterySetting = async () => {
+    setTuningBusy(true);
+    try {
+      if (tuning?.ignoringBatteryOptimizations) {
+        await openBatteryOptimizationSettings();
+        setMessage("Change reSpotIt's battery setting, then return to the app.");
+      } else {
+        await requestBatteryOptimizationExemption();
+        setMessage('Allow reSpotIt to run without restrictions, then return to the app.');
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not open battery settings.');
+    } finally {
+      setTuningBusy(false);
+    }
+  };
+
+  const toggleKeepScreenOn = async (next: boolean) => {
+    setKeepScreenOnState(next);
+    try {
+      await setKeepScreenOn(next);
+    } catch (error) {
+      setKeepScreenOnState(!next);
+      setMessage(error instanceof Error ? error.message : 'Could not change the screen setting.');
+    }
+  };
+
+  const loadDevices = async (silent = false) => {
+    if (deviceBusy && !silent) return;
+    if (!silent) setDeviceBusy(true);
+    try {
+      const token = await getValidAccessToken();
+      const list = await getSpotifyPlaybackDevices(async () => token);
+      setDevices((current) => {
+        if (silent && JSON.stringify(current) === JSON.stringify(list)) return current;
+        return list;
+      });
+      const preferred = list.find((device) => device.is_active)
+        ?? list.find((device) => device.id === state.deviceId)
+        ?? list[0];
+      if (preferred && !deviceBusyRef.current) setSelectedDeviceId(preferred.id);
+      if (!silent) setMessage(`Loaded ${list.length} Spotify device${list.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      if (!silent) setMessage(error instanceof Error ? error.message : 'Could not load Spotify devices.');
+    } finally {
+      if (!silent) setDeviceBusy(false);
+    }
+  };
+
+  const connect = async (activate = false) => {
+    setBusy(true);
+    setMessage('');
+    try {
+      const deviceId = await initWebPlaybackSdk(async () => getValidAccessToken());
+      if (activate) await activateWebPlaybackElement();
+      await loadDevices(false);
+      setMessage('Connected to the Web Playback SDK.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Web Playback SDK connection failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (autoConnectStarted.current) return;
+    autoConnectStarted.current = true;
+    void connect();
+  }, []);
+
+  useEffect(() => {
+    if (!state.ready) return;
+    const timer = window.setInterval(() => {
+      void loadDevices(true);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [state.ready]);
+
+  const toggle = async () => {
+    setBusy(true);
+    try { await toggleWebPlayback(); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Toggle failed.'); }
+    finally { setBusy(false); }
+  };
+
+  const next = async () => {
+    setBusy(true);
+    try { await nextWebPlayback(); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Next failed.'); }
+    finally { setBusy(false); }
+  };
+
+  const previous = async () => {
+    setBusy(true);
+    try { await previousWebPlayback(); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Previous failed.'); }
+    finally { setBusy(false); }
+  };
+
+  const seek = async (value: string) => {
+    try { await seekWebPlayback(Number(value)); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Seek failed.'); }
+  };
+
+  const changeVolume = async (value: string) => {
+    try { await setWebPlaybackVolume(Number(value)); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Volume change failed.'); }
+  };
+
+  const waitForSdkReady = (timeoutMs = 8000): Promise<boolean> => new Promise((resolve) => {
+    if (getWebPlaybackSdkState().ready) {
+      resolve(true);
+      return;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      if (getWebPlaybackSdkState().ready) {
+        window.clearInterval(timer);
+        resolve(true);
+      } else if (Date.now() - started > timeoutMs) {
+        window.clearInterval(timer);
+        resolve(false);
+      }
+    }, 200);
+  });
+
+  const selectDevice = async (targetDeviceId: string) => {
+    setSelectedDeviceId(targetDeviceId);
+    if (!targetDeviceId) {
+      setMessage('Select a device first.');
+      return;
+    }
+    if (devices.find((device) => device.id === targetDeviceId)?.is_active) {
+      setMessage('Playback is already on this device.');
+      return;
+    }
+    deviceBusyRef.current = true;
+    setDeviceBusy(true);
+    setMessage('');
+    try {
+      // Unlock the SDK audio element while the tap is still a user gesture.
+      await activateWebPlaybackElement();
+      if (targetDeviceId === state.deviceId && !state.ready) {
+        await connect(true);
+        await waitForSdkReady();
+      }
+      await transferPlaybackToDeviceAndResume(targetDeviceId, async () => getValidAccessToken());
+      await loadDevices(true);
+      const device = devices.find((item) => item.id === targetDeviceId);
+      setMessage(`Playback moved to ${device?.name ?? 'selected device'}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not move playback to the selected device.');
+    } finally {
+      deviceBusyRef.current = false;
+      setDeviceBusy(false);
+    }
+  };
+
+  const percent = state.duration > 0 ? Math.min(100, (state.position / state.duration) * 100) : 0;
+
+  return (
+    <section className="local-player" aria-label="Web Playback SDK">
+      <div className="local-player-head">
+        <div>
+          <h3>Web Playback SDK</h3>
+          <p className="local-player-sub">Full tracks through Spotify's official browser player.</p>
+        </div>
+        <button type="button" className="local-toggle" onClick={() => void connect(true)} disabled={busy}>
+          <span className={`local-status-dot ${state.ready ? 'is-on' : ''}`} aria-hidden="true" />
+          <span>{state.ready ? 'Reconnect' : 'Connect'}</span>
+        </button>
+      </div>
+
+      <div className="local-player-status">
+        <span className={`local-status-dot ${state.ready ? 'is-on' : ''}`} aria-hidden="true" />
+        <span>{state.ready ? 'Connected' : 'Not connected'}</span>
+        <span>Web SDK device: {state.ready ? 'connected' : 'not connected'}</span>
+      </div>
+
+      {state.error && <div className="player-error local-player-error" role="alert">{state.error}</div>}
+      {state.playbackError && (
+        <div className="player-error local-player-error" role="alert">
+          Playback error: {state.playbackError}
+        </div>
+      )}
+
+      {state.track ? (
+        <div className="player-now">
+          <div className="player-art-wrap">
+            {state.track.image
+              ? <img className="player-art" src={state.track.image} alt="" loading="lazy" />
+              : <div className="player-art player-art--empty" aria-hidden="true">♪</div>}
+          </div>
+          <div className="player-track-info">
+            <p className="player-track-name">{state.track.name}</p>
+            <p className="player-track-artist">{state.track.artist}</p>
+            <p className="player-track-album">{state.track.album}</p>
+            <div className="player-progress" role="progressbar"
+                 aria-valuenow={Math.round(percent)} aria-valuemin={0} aria-valuemax={100}
+                 style={{ position: 'relative' }}>
+              <div className="player-progress-fill" style={{ width: `${percent}%` }} />
+              <input
+                type="range"
+                min="0"
+                max={Math.max(1, state.duration)}
+                step="1"
+                value={Math.min(state.position, Math.max(1, state.duration))}
+                onChange={(event) => void seek(event.target.value)}
+                disabled={!state.ready || state.duration <= 0}
+                aria-label="Seek playback"
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', margin: 0 }}
+              />
+            </div>
+            <div className="player-progress-times">
+              <span>{formatMs(state.position)}</span>
+              <span>{formatMs(state.duration)}</span>
+            </div>
+            <p className="player-device">
+              {state.playing ? 'Playing' : 'Paused'}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <p className="local-player-hint">
+          {state.ready
+            ? 'Ready. Use Spotify Connect or play from another device.'
+            : 'Connecting to the Web SDK…'}
+        </p>
+      )}
+
+      <div style={{ marginTop: '0.75rem' }}>
+        <div className="local-controls">
+          <button type="button" className="local-control-btn" onClick={() => void previous()} disabled={busy || !state.ready} aria-label="Previous track">
+            ⏮
+          </button>
+          <button
+            type="button"
+            className="local-control-btn local-control-btn--main"
+            onClick={() => void toggle()}
+            disabled={busy || !state.ready || !state.track}
+          >
+            {state.playing ? 'Pause' : 'Play'}
+          </button>
+          <button type="button" className="local-control-btn" onClick={() => void next()} disabled={busy || !state.ready} aria-label="Next track">
+            ⏭
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.85rem' }}>
+        <span className="local-player-sub">Volume</span>
+        <input
+          className="local-progress"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={state.volume}
+          onChange={(e) => void changeVolume(e.target.value)}
+          disabled={!state.ready}
+          aria-label="Volume"
+        />
+      </div>
+
+      {state.nextTracks.length > 0 && (
+        <div className="local-upnext" style={{ marginTop: '0.85rem' }}>
+          <div className="local-queue-head">
+            <h3>Up next</h3>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {state.nextTracks.slice(0, 5).map((track, index) => (
+              <div key={`${track.uri}-${index}`} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {track.image && <img src={track.image} alt="" style={{ width: 32, height: 32, borderRadius: 3, objectFit: 'cover' }} />}
+                <div style={{ minWidth: 0 }}>
+                  <div className="text-sm text-ink truncate">{track.name}</div>
+                  <div className="font-mono text-[0.6rem] text-muted truncate">{track.artist}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: '0.85rem' }}>
+        <div className="local-player-foot">
+          <span>Spotify devices</span>
+          <button type="button" className="local-link" onClick={() => void loadDevices(false)} disabled={deviceBusy}>
+            {deviceBusy ? 'Loading devices…' : 'Refresh devices'}
+          </button>
+        </div>
+        <p className="local-player-hint" style={{ marginTop: '0.35rem' }}>
+          Playing on: {devices.find((device) => device.is_active)?.name ?? 'no active device'}
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.5rem' }}>
+          <select
+            className="filter-input"
+            value={selectedDeviceId}
+            onChange={(e) => void selectDevice(e.target.value)}
+            disabled={deviceBusy || devices.length === 0}
+            style={{ flex: 1, minWidth: 220, backgroundColor: '#181818', color: '#ffffff', borderColor: '#333333' }}
+          >
+            {devices.length === 0 ? <option value="">No devices loaded</option> : null}
+            {devices.map((device) => (
+              <option key={device.id} value={device.id} style={{ backgroundColor: '#181818', color: '#ffffff' }}>
+                {device.name} ({device.type}){device.is_active ? ' - active' : ''}{device.is_restricted ? ' - restricted' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {isPlaybackTuningAvailable() && tuning && (
+        <div style={{ marginTop: '0.85rem' }}>
+          <div className="local-player-foot">
+            <span>Playback stability</span>
+          </div>
+          <p className="local-player-hint" style={{ marginTop: '0.35rem' }} role="status">
+            Battery optimisation:{' '}
+            {tuning.ignoringBatteryOptimizations
+              ? 'off — reSpotIt can run unrestricted.'
+              : 'on — Android can throttle the player and make tracks jump.'}{' '}
+            <button
+              type="button"
+              className="local-link"
+              onClick={() => void changeBatterySetting()}
+              disabled={tuningBusy}
+            >
+              {tuningBusy
+                ? 'Opening…'
+                : tuning.ignoringBatteryOptimizations ? 'Change' : 'Switch it off'}
+            </button>
+          </p>
+          <label
+            className="local-player-hint"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.35rem' }}
+          >
+            <input
+              type="checkbox"
+              checked={keepScreenOn}
+              onChange={(event) => void toggleKeepScreenOn(event.target.checked)}
+            />
+            Keep the screen on while playing
+          </label>
+        </div>
+      )}
+
+      {message && <div className="local-player-hint">{message}</div>}
+    </section>
+  );
+};
