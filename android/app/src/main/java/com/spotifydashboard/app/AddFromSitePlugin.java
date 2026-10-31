@@ -52,6 +52,19 @@ public class AddFromSitePlugin extends Plugin {
     getActivity().runOnUiThread(() -> showDialog(initial));
   }
 
+  /**
+   * Entry point for share-sheet launches: opens the Add from site dialog
+   * pre-filled with the shared URL and auto-scans it.
+   */
+  public void openFromShare(String url) {
+    if (url == null || url.trim().isEmpty()) return;
+    if (pendingCall != null) return;
+    resolved = false;
+    detected.clear();
+    final String initial = url.trim();
+    getActivity().runOnUiThread(() -> showDialog(initial));
+  }
+
   private void navigateFromInput(EditText input) {
     String next = input.getText().toString().trim();
     if (next.isEmpty()) return;
