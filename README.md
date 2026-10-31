@@ -58,7 +58,7 @@ cp android-patches/app/src/main/res/xml/network_security_config.xml \
 
 ### 4 — Build & sync
 ```bash
-npm run build
+
 npx cap sync android
 ```
 
@@ -68,9 +68,6 @@ npx cap open android
 # Press ▶ Run — or Build → Build APK(s)
 ```
 
-### Browser development
-```bash
-npm run dev   # http://localhost:3000
 ```
 
 ---
