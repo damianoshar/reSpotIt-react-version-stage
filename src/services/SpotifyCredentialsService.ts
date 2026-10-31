@@ -4,7 +4,7 @@ const PREFS_CLIENT_ID   = 'spotify_creds_client_id';
 const PREFS_CLIENT_SECRET = 'spotify_creds_client_secret';
 
 // Dev-only: allow quick login using VITE_SPOTIFY_CLIENT_ID without shipping it to end users.
-const DEV_CLIENT_ID = import.meta.env.DEV ? ((import.meta.env.VITE_SPOTIFY_CLIENT_ID as string | undefined) ?? '') : '';
+const DEV_CLIENT_ID = import.meta.env.MODE === 'development' ? ((import.meta.env.VITE_SPOTIFY_CLIENT_ID as string | undefined) ?? '') : '';
 
 let _clientId    = DEV_CLIENT_ID;
 let _clientSecret = '';
