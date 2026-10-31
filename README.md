@@ -169,3 +169,10 @@ Download the latest APK from the [releases page](https://github.com/damianoshar/
 3. Open the app and sign in with your Spotify account.
 4. (Optional) Configure your own Spotify credentials in Settings.
 
+
+## Player limitations
+
+- The React app uses Spotify's official Web Playback SDK (browser-based). Requires Spotify Premium and the streaming scope.
+- No buffer/quality settings are available in the Web Playback SDK.
+- On-device playback is not supported in the React app; playback runs on a Spotify Connect device or the browser.
+- The optional librespot variant (separate branch) provides on-device playback but is experimental and not merged to main.
