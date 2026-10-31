@@ -56,18 +56,16 @@ cp android-patches/app/src/main/res/xml/network_security_config.xml \
    android/app/src/main/res/xml/network_security_config.xml
 ```
 
-### 4 — Build & sync
+### 4 - Build & sync
 ```bash
-
+npm run build
 npx cap sync android
 ```
 
-### 5 — Run
+### 5 - Run
 ```bash
 npx cap open android
-# Press ▶ Run — or Build → Build APK(s)
-```
-
+# Press Run or Build -> Build APK(s)
 ```
 
 ---
