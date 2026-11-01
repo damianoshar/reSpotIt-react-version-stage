@@ -71,6 +71,7 @@ type ActiveTab   = 'library' | 'playlists' | 'tools' | 'settings' | 'player';
 export default function App() {
   const auth   = useSpotifyAuth();
   const [showCreds, setShowCreds] = useState(false);
+  const [credsVersion, setCredsVersion] = useState(0);
 
   useEffect(() => { void loadSpotifyCredentials(); }, []);
 
@@ -669,7 +670,7 @@ export default function App() {
   };
 
   if (auth.authState === 'loading') return <Splash />;
-  if (showCreds) return <SpotifyCredentialsScreen onBack={() => setShowCreds(false)} />;
+  if (showCreds) return <SpotifyCredentialsScreen onBack={() => setShowCreds(false)} onSaved={() => { setShowCreds(false); setCredsVersion(v => v + 1); }} />;
   if (srv.authState === 'loading' && ds.settings.mode === 'remote') return <Splash />;
   if (ds.settings.mode === 'remote') {
     if (srv.authState === 'unauthenticated') {
@@ -680,7 +681,7 @@ export default function App() {
     }
   } else if (auth.authState === 'unauthenticated') {
     if (!hasSpotifyCredentials()) {
-      return <SpotifyCredentialsScreen onBack={() => {}} onSaved={() => setShowCreds(false)} />;
+      return <SpotifyCredentialsScreen onBack={() => {}} onSaved={() => setCredsVersion(v => v + 1)} />;
     }
     return <LoginScreen onLogin={auth.login} error={auth.error} onConfigure={() => setShowCreds(true)} />;
   }
