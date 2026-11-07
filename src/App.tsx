@@ -763,14 +763,28 @@ export default function App() {
             )}
             {!lib.loading && lib.albums.length === 0
               ? <EmptyState hasSearch={hasActiveFilter} onImport={() => setModal('sync')} />
-              : <AlbumGrid
-                  albums={lib.albums} loading={lib.loading}
-                  loadingMore={lib.loadingMore} hasMore={lib.hasMore}
-                  selected={sel.selected} onSelect={sel.toggle}
-                  allSelected={sel.allSelected} onToggleAll={sel.toggleAll}
-                  onLoadMore={lib.loadMore}
-                  gridSize={gridSize} viewMode={viewMode}
+              : <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 0.5rem 0.5rem' }}>
+                    <label style={{ fontSize: '0.8rem', color: '#888', cursor: 'pointer', userSelect: 'none' }}>
+                      <input type="checkbox" checked={lib.viewAll}
+                        onChange={() => {
+                          if (!lib.viewAll && lib.total > 200) {
+                            if (!window.confirm('Loading all ' + lib.total + ' albums at once may slow down the app. Continue?')) return;
+                          }
+                          lib.toggleViewAll();
+                        }} style={{ marginRight: '0.3rem' }} />
+                      View all ({lib.total})
+                    </label>
+                  </div>
+                  <AlbumGrid
+                    albums={lib.albums} loading={lib.loading}
+                    loadingMore={lib.loadingMore} hasMore={lib.hasMore}
+                    selected={sel.selected} onSelect={sel.toggle}
+                    allSelected={sel.allSelected} onToggleAll={sel.toggleAll}
+                    onLoadMore={lib.loadMore}
+                    gridSize={gridSize} viewMode={viewMode}
         onInfo={(a: Album) => { setTrackAlbum(a); setTrackAlbumPlaylistId(null); }} />
+                </>
             }
           </>
         )}
