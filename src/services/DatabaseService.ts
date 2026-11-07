@@ -90,6 +90,20 @@ async function doInitDB(): Promise<void> {
       PRIMARY KEY (playlist_id, album_id)
     )
   `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS concerts (
+      id            TEXT PRIMARY KEY,
+      artist        TEXT NOT NULL,
+      artist_id     TEXT DEFAULT '',
+      title         TEXT DEFAULT '',
+      date          TEXT DEFAULT '',
+      venue         TEXT DEFAULT '',
+      url           TEXT DEFAULT '',
+      source_url    TEXT DEFAULT '',
+      followed      INTEGER DEFAULT 0,
+      created_at    TEXT DEFAULT ''
+    )
+  `);
 }
 
 export async function upsertAlbum(album: Album): Promise<void> {
@@ -313,6 +327,64 @@ export async function deleteAlbums(ids: string[]): Promise<void> {
   for (const id of ids) {
     await db.run('DELETE FROM albums WHERE id = ?', [id]);
   }
+  await saveToStore();
+}
+
+export interface Concert {
+  id: string;
+  artist: string;
+  artist_id: string;
+  title: string;
+  date: string;
+  venue: string;
+  url: string;
+  source_url: string;
+  followed: boolean;
+  created_at: string;
+}
+
+export async function upsertConcerts(concerts: Concert[]): Promise<void> {
+  if (!concerts.length) return;
+  await ensureDb();
+  for (const c of concerts) {
+    await db.run(
+      `INSERT OR REPLACE INTO concerts
+         (id, artist, artist_id, title, date, venue, url, source_url, followed, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [c.id, c.artist, c.artist_id, c.title, c.date, c.venue, c.url, c.source_url,
+       c.followed ? 1 : 0, c.created_at],
+    );
+  }
+  await saveToStore();
+}
+
+export async function getConcerts(): Promise<Concert[]> {
+  await ensureDb();
+  const result = await db.query('SELECT * FROM concerts ORDER BY date ASC, artist ASC');
+  const rows = (result.values ?? []) as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    artist: r.artist,
+    artist_id: r.artist_id ?? '',
+    title: r.title ?? '',
+    date: r.date ?? '',
+    venue: r.venue ?? '',
+    url: r.url ?? '',
+    source_url: r.source_url ?? '',
+    followed: !!r.followed,
+    created_at: r.created_at ?? '',
+  }));
+}
+
+export async function deleteConcert(id: string): Promise<void> {
+  await ensureDb();
+  await db.run('DELETE FROM concerts WHERE id = ?', [id]);
+  await saveToStore();
+}
+
+export async function clearConcerts(): Promise<void> {
+  await ensureDb();
+  await db.execute('DELETE FROM concerts');
   await saveToStore();
 }
 
