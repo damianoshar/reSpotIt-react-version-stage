@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+  <!-- Dev build: cleartext HTTP allowed (LAN backends) AND the mkcert local CA
+       installed on the device is trusted, so the self-hosted HTTPS media
+       server (https://192.168.1.11) is accepted by the app + WebView. -->
+  <base-config cleartextTrafficPermitted="true">
+    <trust-anchors>
+      <certificates src="system" />
+      <certificates src="user" />
+    </trust-anchors>
+  </base-config>
+</network-security-config>

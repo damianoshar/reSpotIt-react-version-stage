@@ -1,0 +1,7 @@
+include ':app'
+include ':audio-librespot'
+project(':audio-librespot').projectDir = new File('../native/audio-librespot')
+include ':capacitor-cordova-android-plugins'
+project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
+
+apply from: 'capacitor.settings.gradle'
