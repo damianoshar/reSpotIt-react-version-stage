@@ -1,0 +1,13 @@
+{
+  "appId": "com.spotifydashboard.app.ts",
+  "appName": "reSpotIt",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "http"
+  },
+  "plugins": {
+    "CapacitorSQLite": {
+      "androidIsEncryption": false
+    }
+  }
+}
