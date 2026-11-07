@@ -22,7 +22,9 @@ import { StatsPanel }           from './components/StatsPanel';
 import { SettingsView }         from './components/SettingsView';
 import { DuplicatesDialog }     from './components/DuplicatesDialog';
 import { AddFromSiteDialog }  from './components/AddFromSiteDialog';
-import { AiUrlScanDialog }    from './components/AiUrlScanDialog';import { AIAssistantDialog }  from './components/AIAssistantDialog';
+import { AiUrlScanDialog }    from './components/AiUrlScanDialog';
+import { ConcertsDialog }     from './components/ConcertsDialog';
+import { ConcertsListDialog } from './components/ConcertsListDialog';import { AIAssistantDialog }  from './components/AIAssistantDialog';
 import { ArtistDiscographyDialog } from './components/ArtistDiscographyDialog';
 import { findDuplicates }         from './utils/duplicateFinder';
 import type { DuplicateGroup, DuplicateAlbum } from './utils/duplicateFinder';
@@ -178,6 +180,8 @@ export default function App() {
   const [aiOpen, setAiOpen] = useState(false);
   const [addFromSiteOpen, setAddFromSiteOpen] = useState(false);
   const [aiUrlScanOpen, setAiUrlScanOpen] = useState(false);
+  const [concertsScanOpen, setConcertsScanOpen] = useState(false);
+  const [concertsListOpen, setConcertsListOpen] = useState(false);
   const [discographyOpen, setDiscographyOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
@@ -860,6 +864,24 @@ export default function App() {
                 >
                   Open AI assistant
                 </button>
+                <button
+                  type="button"
+                  className="sync-btn sync-btn--ghost full-width"
+                  onClick={() => setConcertsScanOpen(true)}
+                  style={{ marginTop: '0.5rem' }}
+                  disabled={!isRemote}
+                  title={isRemote ? 'Scan a concerts page with AI' : 'Requires media-server mode'}
+                >
+                  Scan concerts (AI)
+                </button>
+                <button
+                  type="button"
+                  className="sync-btn sync-btn--ghost full-width"
+                  onClick={() => setConcertsListOpen(true)}
+                  style={{ marginTop: '0.5rem' }}
+                >
+                  View concerts calendar
+                </button>
               </section>
 
               <section className="settings-section" style={{ width: '100%' }}>
@@ -992,6 +1014,23 @@ export default function App() {
                 }}
                 onCreatePlaylist={handleAiScanCreatePlaylist}
                 onPlaylistCreated={(name) => showToast(`Created playlist "${name}".`, true)}
+              />
+            )}
+            {concertsScanOpen && (
+              <ConcertsDialog
+                open={concertsScanOpen}
+                onClose={() => setConcertsScanOpen(false)}
+                serverUrl={ds.settings.serverUrl}
+                onSaved={(count) => {
+                  setConcertsScanOpen(false);
+                  showToast(`Saved ${count} concert(s).`, true);
+                }}
+              />
+            )}
+            {concertsListOpen && (
+              <ConcertsListDialog
+                open={concertsListOpen}
+                onClose={() => setConcertsListOpen(false)}
               />
             )}
             {discographyOpen && (
