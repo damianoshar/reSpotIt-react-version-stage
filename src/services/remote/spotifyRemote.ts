@@ -1,0 +1,53 @@
+import { apiFetch } from './apiClient';
+
+export interface ResolvedAlbum {
+  artist: string;
+  album: string;
+  spotify_id: string;
+  title: string;
+  artist_name: string;
+  year: number;
+  image_url: string;
+  spotify_url: string;
+}
+
+export interface UnresolvedAlbum {
+  artist: string;
+  album: string;
+}
+
+export async function resolveAlbums(
+  base: string,
+  items: { artist: string; album: string }[],
+): Promise<{ resolved: ResolvedAlbum[]; unresolved: UnresolvedAlbum[] }> {
+  const res = await apiFetch<{ resolved: ResolvedAlbum[]; unresolved: UnresolvedAlbum[] }>(
+    base, '/api/v1/spotify/resolve-albums', { method: 'POST', body: { items } },
+  );
+  return { resolved: res.resolved ?? [], unresolved: res.unresolved ?? [] };
+}
+
+export interface ResolvedArtist {
+  name: string;
+  spotify_id: string;
+  matched_name: string;
+  image_url: string;
+  genres: string[];
+  followed: boolean;
+}
+
+export async function getFollowedArtists(base: string): Promise<{ id: string; name: string; image_url: string; genres: string[] }[]> {
+  const res = await apiFetch<{ artists: { id: string; name: string; image_url: string; genres: string[] }[] }>(
+    base, '/api/v1/spotify/followed-artists',
+  );
+  return res.artists ?? [];
+}
+
+export async function resolveArtists(
+  base: string,
+  names: string[],
+): Promise<{ resolved: ResolvedArtist[]; unresolved: string[] }> {
+  const res = await apiFetch<{ resolved: ResolvedArtist[]; unresolved: string[] }>(
+    base, '/api/v1/spotify/resolve-artists', { method: 'POST', body: { names } },
+  );
+  return { resolved: res.resolved ?? [], unresolved: res.unresolved ?? [] };
+}

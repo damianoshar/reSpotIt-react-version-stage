@@ -70,6 +70,58 @@ export async function chatWithLLM(
   return res.data;
 }
 
+export interface ExtractedAlbum {
+  artist: string;
+  album: string;
+}
+
+export interface ExtractedConcert {
+  artist: string;
+  date: string;
+  venue: string;
+  url: string;
+}
+
+export async function extractAlbumsFromUrl(
+  serverUrl: string,
+  url: string,
+): Promise<ExtractedAlbum[]> {
+  const res = await apiFetch<{ data: { albums: ExtractedAlbum[] } }>(
+    serverUrl, '/api/v1/llm/extract-albums', { method: 'POST', body: { url } },
+  );
+  return res.data?.albums ?? [];
+}
+
+export async function extractAlbumsFromText(
+  serverUrl: string,
+  text: string,
+): Promise<ExtractedAlbum[]> {
+  const res = await apiFetch<{ data: { albums: ExtractedAlbum[] } }>(
+    serverUrl, '/api/v1/llm/extract-albums', { method: 'POST', body: { text } },
+  );
+  return res.data?.albums ?? [];
+}
+
+export async function extractConcertsFromUrl(
+  serverUrl: string,
+  url: string,
+): Promise<ExtractedConcert[]> {
+  const res = await apiFetch<{ data: { concerts: ExtractedConcert[] } }>(
+    serverUrl, '/api/v1/llm/extract-concerts', { method: 'POST', body: { url } },
+  );
+  return res.data?.concerts ?? [];
+}
+
+export async function extractConcertsFromText(
+  serverUrl: string,
+  text: string,
+): Promise<ExtractedConcert[]> {
+  const res = await apiFetch<{ data: { concerts: ExtractedConcert[] } }>(
+    serverUrl, '/api/v1/llm/extract-concerts', { method: 'POST', body: { text } },
+  );
+  return res.data?.concerts ?? [];
+}
+
 /** Friendly short model label for the dialog status line. */
 export function modelLabel(model: string | null | undefined): string {
   if (!model) return 'no model';

@@ -22,7 +22,7 @@ import { StatsPanel }           from './components/StatsPanel';
 import { SettingsView }         from './components/SettingsView';
 import { DuplicatesDialog }     from './components/DuplicatesDialog';
 import { AddFromSiteDialog }  from './components/AddFromSiteDialog';
-import { AIAssistantDialog }  from './components/AIAssistantDialog';
+import { AiUrlScanDialog }    from './components/AiUrlScanDialog';import { AIAssistantDialog }  from './components/AIAssistantDialog';
 import { ArtistDiscographyDialog } from './components/ArtistDiscographyDialog';
 import { findDuplicates }         from './utils/duplicateFinder';
 import type { DuplicateGroup, DuplicateAlbum } from './utils/duplicateFinder';
@@ -41,10 +41,8 @@ import { usePlaylistDashboard } from './hooks/usePlaylistDashboard';
 import { usePlayerQueue }       from './hooks/usePlayerQueue';
 // Local librespot playback has been replaced by the Web Playback SDK player.
 import { Artwork }              from './components/Artwork';
-import { addAlbumsToQueue }     from './services/SpotifyPlaylistService';
-import { removeSavedAlbums, getSavedAlbumArtistIds, areArtistsFollowed, followArtists } from './services/SpotifyApiService';
-import { removeRemoteAlbumsFromPlaylist } from './services/remote/playlistRemote';
-import { deletePlaylistAlbums } from './services/PlaylistDatabaseService';
+import { addAlbumsToQueue, createPlaylistFromAlbums } from './services/SpotifyPlaylistService';import { removeSavedAlbums, getSavedAlbumArtistIds, areArtistsFollowed, followArtists } from './services/SpotifyApiService';
+import { removeRemoteAlbumsFromPlaylist, createAndAddRemotePlaylist } from './services/remote/playlistRemote';import { deletePlaylistAlbums } from './services/PlaylistDatabaseService';
 import { getValidAccessToken }   from './services/SpotifyAuthService';
 import { loadSpotifyCredentials, hasSpotifyCredentials } from './services/SpotifyCredentialsService';
 import { initWebPlaybackSdk, disconnectWebPlaybackSdk } from './services/WebPlaybackSdkService';
@@ -179,6 +177,7 @@ export default function App() {
   const [dupesOpen, setDupesOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [addFromSiteOpen, setAddFromSiteOpen] = useState(false);
+  const [aiUrlScanOpen, setAiUrlScanOpen] = useState(false);
   const [discographyOpen, setDiscographyOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
@@ -397,6 +396,24 @@ export default function App() {
       showToast(e?.message ?? 'Could not restore hidden albums.', false);
     }
   }, [lib, showToast]);
+  const handleAiScanCreatePlaylist = useCallback(async (albums: { spotify_id: string; title: string; artist_name: string; year: number; image_url: string }[]) => {
+    const name = `AI scan ${new Date().toLocaleDateString()}`;
+    if (isRemote) {
+      return createAndAddRemotePlaylist(ds.settings.serverUrl, name, albums.map((a) => a.spotify_id));
+    }
+    const albumObjs: Album[] = albums.map((a) => ({
+      id: a.spotify_id,
+      title: a.title,
+      artist: a.artist_name,
+      year: a.year ?? 0,
+      genre: '',
+      image_url: a.image_url ?? '',
+      image_path: '',
+      added_at: new Date().toISOString(),
+    }));
+    const res = await createPlaylistFromAlbums(name, albumObjs);
+    return { id: res.playlist.id, name: res.playlist.name, tracksAdded: res.tracksAdded };
+  }, [isRemote, ds.settings.serverUrl, showToast]);
   const handleRemoveSelectedFromPlaylist = useCallback(async () => {
     const pid = pld.selectedPlaylist?.id;
     if (!pid || plSel.selected.size === 0) return;
@@ -885,6 +902,16 @@ export default function App() {
                 >
                   Add albums from a website
                 </button>
+                <button
+                  type="button"
+                  className="sync-btn sync-btn--ghost full-width"
+                  onClick={() => setAiUrlScanOpen(true)}
+                  style={{ marginTop: '0.5rem' }}
+                  disabled={!isRemote}
+                  title={isRemote ? 'Scan a page with AI to extract albums' : 'Requires media-server mode'}
+                >
+                  Scan page with AI (albums)
+                </button>
               </section>
 
               <section className="settings-section" style={{ width: '100%', marginTop: '1.5rem' }}>
@@ -951,6 +978,20 @@ export default function App() {
                   setAddFromSiteOpen(false);
                   showToast('Imported albums from website.', true);
                 }}
+              />
+            )}
+            {aiUrlScanOpen && (
+              <AiUrlScanDialog
+                open={aiUrlScanOpen}
+                onClose={() => setAiUrlScanOpen(false)}
+                serverUrl={ds.settings.serverUrl}
+                onImportCsv={lib.syncCSV}
+                onImported={(result) => {
+                  setAiUrlScanOpen(false);
+                  showToast(`Imported ${result.imported}, skipped ${result.skipped}, existing ${result.existing}.`, true);
+                }}
+                onCreatePlaylist={handleAiScanCreatePlaylist}
+                onPlaylistCreated={(name) => showToast(`Created playlist "${name}".`, true)}
               />
             )}
             {discographyOpen && (
