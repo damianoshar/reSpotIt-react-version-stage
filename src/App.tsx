@@ -869,10 +869,9 @@ export default function App() {
                   className="sync-btn sync-btn--ghost full-width"
                   onClick={() => setConcertsScanOpen(true)}
                   style={{ marginTop: '0.5rem' }}
-                  disabled={!isRemote}
-                  title={isRemote ? 'Scan a concerts page with AI' : 'Requires media-server mode'}
+                  title={isRemote ? 'Scan a concerts page with AI' : 'Add a concert manually'}
                 >
-                  Scan concerts (AI)
+                  {isRemote ? 'Scan concerts (AI)' : 'Add concert manually'}
                 </button>
                 <button
                   type="button"
@@ -929,10 +928,9 @@ export default function App() {
                   className="sync-btn sync-btn--ghost full-width"
                   onClick={() => setAiUrlScanOpen(true)}
                   style={{ marginTop: '0.5rem' }}
-                  disabled={!isRemote}
-                  title={isRemote ? 'Scan a page with AI to extract albums' : 'Requires media-server mode'}
+                  title={isRemote ? 'Scan a page with AI to extract albums' : 'Paste Spotify album links (manual)'}
                 >
-                  Scan page with AI (albums)
+                  {isRemote ? 'Scan page with AI (albums)' : 'Add albums from pasted links'}
                 </button>
               </section>
 

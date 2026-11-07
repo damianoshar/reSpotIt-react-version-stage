@@ -25,6 +25,10 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
   const [pasteText, setPasteText] = useState('');
   const [scanning, setScanning] = useState(false);
   const [rows, setRows] = useState<ConcertRow[]>([]);
+  const [manualArtist, setManualArtist] = useState('');
+  const [manualDate, setManualDate] = useState('');
+  const [manualVenue, setManualVenue] = useState('');
+  const [manualUrl, setManualUrl] = useState('');
   const [unresolved, setUnresolved] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -64,6 +68,33 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
       setError(e?.message ?? 'Scan failed.');
     } finally {
       setScanning(false);
+    }
+  };
+
+  const handleManualSave = async () => {
+    if (!manualArtist.trim()) { setError('Artist is required.'); return; }
+    setSaving(true); setError(''); setResultMessage('');
+    try {
+      const concert: Concert = {
+        id: `${manualArtist}-${manualDate}`.replace(/\\s+/g, '_'),
+        artist: manualArtist.trim(),
+        artist_id: '',
+        title: manualArtist.trim() + (manualVenue ? ` at ${manualVenue}` : ''),
+        date: manualDate,
+        venue: manualVenue,
+        url: manualUrl,
+        source_url: 'manual',
+        followed: false,
+        created_at: new Date().toISOString(),
+      };
+      await upsertConcerts([concert]);
+      onSaved?.(1);
+      setResultMessage('Saved 1 concert.');
+      setManualArtist(''); setManualDate(''); setManualVenue(''); setManualUrl('');
+    } catch (e: any) {
+      setError(e?.message ?? 'Save failed.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -111,26 +142,38 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
           <button className="modal-close" type="button" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
-        <div className="add-from-site-toolbar">
-          <input
-            className="form-input"
-            placeholder="https://example.com/concerts"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            disabled={scanning}
-          />
-          <textarea
-            className="form-input"
-            placeholder="…or paste page text here"
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            disabled={scanning}
-            rows={3}
-          />
-          <button type="button" className="sync-btn" onClick={() => void handleScan()} disabled={scanning || (!url.trim() && !pasteText.trim())}>
-            {scanning ? 'Scanning…' : 'Scan with AI'}
-          </button>
-        </div>
+        {serverUrl ? (
+          <div className="add-from-site-toolbar">
+            <input
+              className="form-input"
+              placeholder="https://example.com/concerts"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              disabled={scanning}
+            />
+            <textarea
+              className="form-input"
+              placeholder="…or paste page text here"
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              disabled={scanning}
+              rows={3}
+            />
+            <button type="button" className="sync-btn" onClick={() => void handleScan()} disabled={scanning || (!url.trim() && !pasteText.trim())}>
+              {scanning ? 'Scanning…' : 'Scan with AI'}
+            </button>
+          </div>
+        ) : (
+          <div className="add-from-site-toolbar">
+            <input className="form-input" placeholder="Artist" value={manualArtist} onChange={(e) => setManualArtist(e.target.value)} />
+            <input className="form-input" placeholder="Date (YYYY-MM-DD)" value={manualDate} onChange={(e) => setManualDate(e.target.value)} />
+            <input className="form-input" placeholder="Venue (optional)" value={manualVenue} onChange={(e) => setManualVenue(e.target.value)} />
+            <input className="form-input" placeholder="URL (optional)" value={manualUrl} onChange={(e) => setManualUrl(e.target.value)} />
+            <button type="button" className="sync-btn" onClick={() => void handleManualSave()} disabled={saving || !manualArtist.trim()}>
+              {saving ? 'Saving…' : 'Save concert'}
+            </button>
+          </div>
+        )}
 
         {error && <div className="error-banner">{error}</div>}
         {resultMessage && <div className="success-banner">{resultMessage}</div>}

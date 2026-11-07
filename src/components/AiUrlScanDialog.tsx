@@ -13,6 +13,35 @@ export interface AiUrlScanDialogProps {
   onPlaylistCreated?: (name: string) => void;
 }
 
+const SPOTIFY_ALBUM_ID_RE = /open\.spotify\.com\/(?:embed\/)?album\/([A-Za-z0-9]{22})/gi;
+function collectAlbumIds(text: string): string[] {
+  const found = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = SPOTIFY_ALBUM_ID_RE.exec(text))) found.add(match[1]);
+  SPOTIFY_ALBUM_ID_RE.lastIndex = 0;
+  return [...found];
+}
+
+async function fetchAlbum(id: string): Promise<ResolvedAlbum> {
+  const token = await (await import('../services/SpotifyAuthService')).getValidAccessToken();
+  const res = await fetch('https://api.spotify.com/v1/albums/' + encodeURIComponent(id), {
+    headers: { Authorization: 'Bearer ' + token },
+  });
+  if (!res.ok) throw new Error('Spotify could not load album ' + id + ' (' + res.status + ').');
+  const data: any = await res.json();
+  const year = parseInt(String(data?.release_date ?? '').slice(0, 4), 10);
+  return {
+    spotify_id: id,
+    title: data?.name ?? 'Unknown title',
+    artist: '',
+    album: '',
+    artist_name: (Array.isArray(data?.artists) ? data.artists.map((a: any) => a.name).join(', ') : '') || 'Unknown artist',
+    year: Number.isFinite(year) ? year : 0,
+    image_url: data?.images?.[0]?.url ?? '',
+    spotify_url: data?.external_urls?.spotify ?? '',
+  };
+}
+
 export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
   open, onClose, serverUrl, onImportCsv, onImported, onCreatePlaylist, onPlaylistCreated,
 }) => {
@@ -37,18 +66,35 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
   const handleScan = async () => {
     setError(''); setResultMessage(''); setScanning(true);
     try {
-      const extracted = url.trim()
-        ? await extractAlbumsFromUrl(serverUrl, url.trim())
-        : await extractAlbumsFromText(serverUrl, pasteText.trim());
-      if (!extracted.length) {
-        setError('AI found no albums on this page.');
-        setAlbums([]); setUnresolved([]);
-        return;
+      if (serverUrl) {
+        const extracted = url.trim()
+          ? await extractAlbumsFromUrl(serverUrl, url.trim())
+          : await extractAlbumsFromText(serverUrl, pasteText.trim());
+        if (!extracted.length) {
+          setError('AI found no albums on this page.');
+          setAlbums([]); setUnresolved([]);
+          return;
+        }
+        const { resolved, unresolved } = await resolveAlbums(serverUrl, extracted);
+        setAlbums(resolved);
+        setUnresolved(unresolved);
+        setSelected(new Set(resolved.map((a) => a.spotify_id)));
+      } else {
+        // Standalone fallback: parse Spotify album links from pasted text/URL.
+        const found = collectAlbumIds((pasteText || url).trim());
+        if (!found.length) {
+          setError('No Spotify album links found in that text.');
+          setAlbums([]); setUnresolved([]);
+          return;
+        }
+        const entries = await Promise.all(found.map(async (id) => {
+          try { return await fetchAlbum(id); }
+          catch { return { spotify_id: id, title: id, artist: '', album: '', artist_name: 'Spotify album', year: 0, image_url: '', spotify_url: '' }; }
+        }));
+        setAlbums(entries);
+        setUnresolved([]);
+        setSelected(new Set(entries.map((a) => a.spotify_id)));
       }
-      const { resolved, unresolved } = await resolveAlbums(serverUrl, extracted);
-      setAlbums(resolved);
-      setUnresolved(unresolved);
-      setSelected(new Set(resolved.map((a) => a.spotify_id)));
     } catch (e: any) {
       setError(e?.message ?? 'Scan failed.');
     } finally {
