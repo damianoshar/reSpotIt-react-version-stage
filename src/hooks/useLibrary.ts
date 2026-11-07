@@ -53,6 +53,9 @@ export function useLibrary(ds: { mode: DataSourceMode; serverUrl: string; sessio
   const [albums,      setAlbums]      = useState<Album[]>([]);
   const [total,       setTotal]       = useState(0);
   const [hasMore,     setHasMore]     = useState(false);
+  const [viewAll,     setViewAll]     = useState(false);
+  const viewAllRef = useRef(viewAll);
+  viewAllRef.current = viewAll;
   const [loadingMore, setLoadingMore] = useState(false);
   const offsetRef = useRef(0);
 
@@ -83,29 +86,30 @@ export function useLibrary(ds: { mode: DataSourceMode; serverUrl: string; sessio
   // ── Core query — resets album list, runs on debounced filter change ───────
   // Remote mode reads the server (paginated envelope + stats + options);
   // local mode reads SQLite. Same state shapes either way.
-  const runQuery = useCallback(async (f: FilterState) => {
+  const runQuery = useCallback(async (f: FilterState, preserveOffset = false) => {
     if (!dbReady) return;
     if (!sessionReady) { setLoading(false); return; }
     setLoading(true);
-    offsetRef.current = 0;
+    if (!preserveOffset) offsetRef.current = 0;
+    const limit = viewAllRef.current ? 100000 : PAGE_SIZE;
     try {
       if (remote) {
         const [page, s, opts] = await Promise.all([
-          queryRemoteAlbums(serverUrl, f, PAGE_SIZE, 0),
+          queryRemoteAlbums(serverUrl, f, limit, 0),
           fetchRemoteStats(serverUrl),
           fetchRemoteFilterOptions(serverUrl),
         ]);
         offsetRef.current = page.albums.length;
         setAlbums(page.albums);
         setTotal(page.total);
-        setHasMore(page.albums.length < page.total);
+        setHasMore(!viewAllRef.current && page.albums.length < page.total);
         setGenres(opts.genres); setArtists(opts.artists); setYears(opts.years); setStats(s);
       } else {
         const [first, cnt, g, ar, y, s] = await Promise.all([
           getAllAlbums(
             f.search, f.genre, f.sortField, f.sortOrder,
             yearStr(f.yearFrom), yearStr(f.yearTo), f.artist,
-            PAGE_SIZE, 0,
+            limit, 0,
             f.albumType, f.minPop, f.maxPop
           ),
           countAlbums(f.search, f.genre, yearStr(f.yearFrom), yearStr(f.yearTo), f.artist,
@@ -118,7 +122,7 @@ export function useLibrary(ds: { mode: DataSourceMode; serverUrl: string; sessio
         offsetRef.current = first.length;
         setAlbums(first);
         setTotal(cnt);
-        setHasMore(first.length < cnt);
+        setHasMore(!viewAllRef.current && first.length < cnt);
         setGenres(g); setArtists(ar); setYears(y); setStats(s);
       }
       setError(null);
@@ -126,6 +130,7 @@ export function useLibrary(ds: { mode: DataSourceMode; serverUrl: string; sessio
       setError(remote
         ? describeRemoteError(e, 'Failed to load library')
         : 'Failed to load library: ' + (e?.message ?? e));
+      // Keep existing albums on failure so viewAll toggle doesn't wipe the grid
     } finally {
       setLoading(false);
     }
@@ -173,6 +178,13 @@ export function useLibrary(ds: { mode: DataSourceMode; serverUrl: string; sessio
       setLoadingMore(false);
     }
   }, [hasMore, loadingMore, loading, queryFilters, total, remote, serverUrl]);
+
+  const toggleViewAll = useCallback(() => {
+    const next = !viewAllRef.current;
+    viewAllRef.current = next;
+    setViewAll(next);
+    runQuery(queryFilters, true);
+  }, [runQuery, queryFilters]);
 
   const forceRefresh = useCallback(() => runQuery(queryFilters), [runQuery, queryFilters]);
 
@@ -388,5 +400,6 @@ export function useLibrary(ds: { mode: DataSourceMode; serverUrl: string; sessio
     refresh: forceRefresh, syncCSV, importAlbums, syncFromSpotify, cancelSync, clearAll,
     pushLocalToServer, pullServerToLocal,
     updateFilter, resetFilters, resetAll, loadMore, deleteLocalAlbums, getAlbumsForDuplicateScan,
+    viewAll, toggleViewAll,
   };
 }
