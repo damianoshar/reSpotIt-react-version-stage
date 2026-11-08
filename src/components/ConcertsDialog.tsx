@@ -5,6 +5,7 @@ import {
   type ExtractedConcert,
   listLLMChats,
   chatWithLLM,
+  deleteLLMChat,
   type LLMChatSummary,
   type LLMMessage,
   type LLMChatResult,
@@ -221,7 +222,12 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
   };
 
   const deleteChat = async (chatId: string) => {
-    setChats((prev) => prev.filter((c) => c.id !== chatId));
+    try {
+      await deleteLLMChat(serverUrl, chatId);
+      setChats((prev) => prev.filter((c) => c.id !== chatId));
+    } catch (e: any) {
+      console.error('Failed to delete chat:', e);
+    }
   };
 
   const startNewChat = () => {

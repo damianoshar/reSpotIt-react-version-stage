@@ -8,6 +8,7 @@ import {
   createLLMChat,
   chatWithLLM,
   storedChatTurns,
+  deleteLLMChat,
   type LLMChatSummary,
   type LLMChatRow,
   type LLMMessage,
@@ -251,8 +252,12 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
   };
 
   const deleteChat = async (chatId: string) => {
-    // In a full implementation, we'd call deleteLLMChat
-    setChats((prev) => prev.filter((c) => c.id !== chatId));
+    try {
+      await deleteLLMChat(serverUrl, chatId);
+      setChats((prev) => prev.filter((c) => c.id !== chatId));
+    } catch (e: any) {
+      console.error('Failed to delete chat:', e);
+    }
   };
 
   const startNewChat = () => {
