@@ -81,8 +81,13 @@ export interface RemotePlaylistList {
 }
 
 export async function listRemotePlaylists(base: string): Promise<RemotePlaylistList> {
-  const data = await apiFetch<{ data: RemotePlaylistItem[] }>(base, '/api/v1/playlists');
-  const items = data.data ?? [];
+  // GET /api/v1/playlists is a bare array on FastAPI and { data: [...] } on the
+  // JWT backends. Accept both shapes so remote playlists work everywhere
+  // (mirrors the Kotlin PlaylistListEnvelopeDeserializer).
+  const data = await apiFetch<RemotePlaylistItem[] | { data?: RemotePlaylistItem[] }>(
+    base, '/api/v1/playlists'
+  );
+  const items = Array.isArray(data) ? data : (data?.data ?? []);
   const syncedAt = new Map<string, string>();
   for (const p of items) {
     if (p.synced_at) syncedAt.set(p.id, p.synced_at);

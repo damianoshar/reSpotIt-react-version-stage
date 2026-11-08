@@ -33,6 +33,7 @@ import { getHiddenDuplicateAlbums, hideDuplicateAlbums, restoreHiddenDuplicates,
 import { SyncPhotosProvider }     from './contexts/SyncPhotosContext';
 import { getExportAlbums, getExistingAlbumIds, upsertAlbum, saveToStore } from './services/DatabaseService';
 import { exportRemoteBackup }   from './services/remote/libraryRemote';
+import { followLibraryArtistsRemote } from './services/remote/spotifyRemote';
 import { useSpotifyAuth }       from './hooks/useSpotifyAuth';
 import { useDataSource }        from './hooks/useDataSource';
 import { useServerAuth }        from './hooks/useServerAuth';
@@ -345,6 +346,16 @@ export default function App() {
     let already = 0;
     let followed = 0;
     try {
+      // Remote: the media server's linked Spotify account does the following,
+      // so the tool works without a device Spotify login.
+      if (isRemote) {
+        const r = await followLibraryArtistsRemote(ds.settings.serverUrl);
+        showToast(
+          `Followed ${r.followed} new artist(s) (${r.already_followed} already, ${r.total} total).`,
+          true,
+        );
+        return;
+      }
       const ids = await getSavedAlbumArtistIds();
       total = ids.length;
       if (!ids.length) {
@@ -366,7 +377,7 @@ export default function App() {
     } finally {
       setFollowBusy(false);
     }
-  }, [showToast]);
+  }, [showToast, isRemote, ds.settings.serverUrl]);
 
   const handleGetLibraryAlbumIds = useCallback(async (): Promise<Set<string>> => {
     if (isRemote) return new Set<string>();
