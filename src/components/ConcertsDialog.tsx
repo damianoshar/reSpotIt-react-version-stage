@@ -1,16 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  extractConcertsFromUrl,
-  extractConcertsFromText,
-  type ExtractedConcert,
   listLLMChats,
-  chatWithLLM,
   deleteLLMChat,
   type LLMChatSummary,
-  type LLMMessage,
-  type LLMChatResult,
 } from '../services/LLMService';
-import { resolveArtists, type ResolvedArtist } from '../services/remote/spotifyRemote';
+import { resolveArtists } from '../services/remote/spotifyRemote';
+import {
+  startRemoteConcertScan,
+  getLatestRemoteConcertScan,
+  deleteRemoteConcertScan,
+  type RemoteConcertScan,
+  type RemoteConcertScanItem,
+} from '../services/remote/concertScansRemote';
 import { type Concert } from '../services/DatabaseService';
 import { saveConcerts } from '../services/storage';
 
@@ -53,6 +54,77 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
   const [historyLoading, setHistoryLoading] = useState(false);
   // Default to correlating the scan with the user's followed Spotify artists.
   const [followedOnly, setFollowedOnly] = useState(true);
+  // Click-and-forget background scan (server-side) whose results wait for review.
+  const [scan, setScan] = useState<RemoteConcertScan | null>(null);
+  const [scanChecking, setScanChecking] = useState(false);
+
+  // Turn a finished scan into review rows (correlate artists with Spotify).
+  const applyScan = useCallback((next: RemoteConcertScan) => {
+    setScan(next);
+    if (next.status === 'error') {
+      setError(next.error || 'Scan failed.');
+      return;
+    }
+    if (next.status !== 'ready') {
+      setResultMessage(next.message || 'Scanning in the background…');
+      return;
+    }
+    const items: RemoteConcertScanItem[] = next.items ?? [];
+    if (!items.length) {
+      setError('AI found no concerts on this page.');
+      setRows([]); setUnresolved([]);
+      return;
+    }
+    void (async () => {
+      try {
+        const { resolved, unresolved } = await resolveArtists(serverUrl, items.map((c) => c.artist));
+        const resolvedMap = new Map(resolved.map((r) => [r.name.toLowerCase(), r]));
+        setRows(items.map((c) => {
+          const match = resolvedMap.get(c.artist.toLowerCase()) ??
+            resolved.find((r) => r.name.toLowerCase().includes(c.artist.toLowerCase()) || c.artist.toLowerCase().includes(r.name.toLowerCase()));
+          return {
+            artist: c.artist,
+            date: c.date,
+            venue: c.venue,
+            url: c.url,
+            spotify_id: match?.spotify_id ?? '',
+            followed: match?.followed ?? false,
+            selected: match?.followed ?? false,
+          };
+        }));
+        setUnresolved(unresolved);
+        setResultMessage(`Scan ready: ${items.length} concert(s). Review and save the ones you want.`);
+      } catch (e: any) {
+        setError(e?.message ?? 'Could not resolve artists.');
+      }
+    })();
+  }, [serverUrl]);
+
+  const loadLatestScan = useCallback(async () => {
+    if (!serverUrl) return;
+    setScanChecking(true);
+    try {
+      const next = await getLatestRemoteConcertScan(serverUrl);
+      if (next) applyScan(next);
+    } catch {
+      /* background check is best-effort */
+    } finally {
+      setScanChecking(false);
+    }
+  }, [serverUrl, applyScan]);
+
+  // On open, pull whatever the background scan produced while away.
+  useEffect(() => {
+    if (!open || !serverUrl) return;
+    void loadLatestScan();
+  }, [open, serverUrl, loadLatestScan]);
+
+  // Keep refreshing while a scan is still running in the background.
+  useEffect(() => {
+    if (!open || !serverUrl || scan?.status !== 'running') return;
+    const timer = window.setInterval(() => { void loadLatestScan(); }, 4000);
+    return () => window.clearInterval(timer);
+  }, [open, serverUrl, scan?.status, loadLatestScan]);
 
   // Load chat history on mount
   useEffect(() => {
@@ -75,35 +147,19 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
   if (!open) return null;
 
   const handleScan = async () => {
-    setError(''); setResultMessage(''); setScanning(true);
+    setError(''); setResultMessage(''); setScanning(true); setRows([]); setUnresolved([]);
     try {
-      const extracted = url.trim()
-        ? await extractConcertsFromUrl(serverUrl, url.trim())
-        : await extractConcertsFromText(serverUrl, pasteText.trim());
-      if (!extracted.length) {
-        setError('AI found no concerts on this page.');
-        setRows([]); setUnresolved([]);
-        return;
-      }
-      const { resolved, unresolved } = await resolveArtists(serverUrl, extracted.map((c) => c.artist));
-      const resolvedMap = new Map(resolved.map((r) => [r.name.toLowerCase(), r]));
-      const nextRows: ConcertRow[] = extracted.map((c, i) => {
-        const match = resolvedMap.get(c.artist.toLowerCase()) ??
-          resolved.find((r) => r.name.toLowerCase().includes(c.artist.toLowerCase()) || c.artist.toLowerCase().includes(r.name.toLowerCase()));
-        return {
-          artist: c.artist,
-          date: c.date,
-          venue: c.venue,
-          url: c.url,
-          spotify_id: match?.spotify_id ?? '',
-          followed: match?.followed ?? false,
-          selected: match?.followed ?? false,
-        };
+      // Click and forget: the server runs the scan in the background and
+      // streams progress into Open WebUI. Results wait on /latest for review.
+      const started = await startRemoteConcertScan(serverUrl, {
+        url: url.trim() || undefined,
+        text: url.trim() ? undefined : pasteText.trim(),
       });
-      setRows(nextRows);
-      setUnresolved(unresolved);
+      setScan(started);
+      setResultMessage('Scan started in the background. You can close this — results will be waiting when you return.');
+      setUrl(''); setPasteText('');
     } catch (e: any) {
-      setError(e?.message ?? 'Scan failed.');
+      setError(e?.message ?? 'Could not start the scan.');
     } finally {
       setScanning(false);
     }
@@ -145,6 +201,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
     if (!selectedRows.length) return;
     setSaving(true); setError(''); setResultMessage('');
     try {
+      const sourceUrl = scan?.source_url || (scan ? (scan.source_kind === 'text' ? 'pasted text' : '') : '');
       const concerts: Concert[] = selectedRows.map((r, i) => ({
         id: `${r.artist}-${r.date}-${i}`.replace(/\s+/g, '_'),
         artist: r.artist,
@@ -153,13 +210,17 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
         date: r.date,
         venue: r.venue,
         url: r.url,
-        source_url: url.trim() || 'pasted text',
+        source_url: sourceUrl,
         followed: r.followed,
         created_at: new Date().toISOString(),
       }));
       await saveConcerts({ remote: isRemote, serverUrl }, concerts);
-      // Persist chat BEFORE onSaved closes dialog
-      await persistScanChat(`Saved ${concerts.length} concert(s).`);
+      // The scan is reviewed and saved: dismiss it so it does not reappear.
+      if (scan) {
+        try { await deleteRemoteConcertScan(serverUrl, scan.id); } catch { /* best-effort */ }
+      }
+      setScan(null);
+      setRows([]); setUnresolved([]);
       onSaved?.(concerts.length);
       setResultMessage(`Saved ${concerts.length} concert(s).`);
     } catch (e: any) {
@@ -169,50 +230,14 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
     }
   };
 
-  // Build context for LLM chat
-  const buildContext = (concerts: ConcertRow[]) => {
-    const lines: string[] = [];
-    if (concerts.length) {
-      lines.push('Concerts extracted from page:');
-      concerts.slice(0, 50).forEach((c) => {
-        lines.push(`- ${c.artist} — ${c.date || 'date unknown'}${c.venue ? ` at ${c.venue}` : ''}${c.followed ? ' (followed on Spotify)' : ''}`);
-      });
+  // Throw away a scan (reviewed or not) so it stops showing up in this dialog.
+  const dismissScan = async () => {
+    if (scan) {
+      try { await deleteRemoteConcertScan(serverUrl, scan.id); } catch { /* best-effort */ }
     }
-    return lines.join('\n');
-  };
-
-  // Persist scan as chat turn
-  const persistScanChat = async (userPrompt: string) => {
-    if (!serverUrl) return;
-    const context = buildContext(rows);
-    const systemPrompt =
-      'You are a concert calendar assistant. The user scanned a page for concerts. ' +
-      'The extracted concerts are listed below. You can help them refine the selection, ' +
-      'follow artists on Spotify, or answer questions about the events.';
-    try {
-      const result = await chatWithLLM(serverUrl, [
-        { role: 'system', content: systemPrompt + '\n\nConcerts:\n' + context },
-        { role: 'user', content: userPrompt },
-      ], {
-        system: systemPrompt + '\n\nConcerts:\n' + context,
-        chat_id: chatId,
-        use_history: true,
-        history_limit: 20,
-        persist: true,
-        use_tools: false,
-        temperature: 0.3,
-        max_tokens: 512,
-        chat_type: 'extract_concerts',
-      });
-      if (result.chat_id) setChatId(result.chat_id);
-    } catch (e: any) {
-      console.warn('Could not persist scan chat:', e);
-    }
-  };
-
-  const handleSaveWithChat = async () => {
-    await handleSave();
-    await persistScanChat(`Saved ${selectedVisible.length} concert(s).`);
+    setScan(null);
+    setRows([]); setUnresolved([]);
+    setError(''); setResultMessage('');
   };
 
   const loadChat = async (chatId: string) => {
@@ -249,26 +274,6 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
     .map((r, i) => ({ r, i }))
     .filter(({ r }) => !followedOnly || r.followed);
   const selectedVisible = rows.filter((r) => r.selected && (!followedOnly || r.followed));
-
-  // Load chat history on mount
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setHistoryLoading(true);
-    listLLMChats(serverUrl, 'extract_concerts')
-      .then((rows) => {
-        if (!cancelled) {
-          setChats(rows);
-          setHistoryLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setHistoryLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [open, serverUrl]);
-
-  if (!open) return null;
 
   return (
     <div className="modal-overlay add-from-site-overlay" role="presentation" onClick={onClose}>
@@ -365,6 +370,35 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
           </div>
         )}
 
+        {scan && (
+          <div
+            style={{
+              display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+              margin: '8px 0', padding: 8, border: '1px solid #333', borderRadius: 8,
+            }}
+          >
+            <span className="muted" style={{ flex: 1, minWidth: 200 }}>
+              {scan.status === 'running'
+                ? `Scanning in the background (${scan.stage || 'queued'})… progress is logged in Open WebUI.`
+                : scan.status === 'ready'
+                  ? `Scan ready: ${scan.items.length} concert(s) to review.`
+                  : `Scan failed: ${scan.error || 'unknown error'}`}
+              {scan.source_url ? ` · ${scan.source_url}` : ''}
+            </span>
+            <button
+              type="button"
+              className="url-btn"
+              onClick={() => void loadLatestScan()}
+              disabled={scanChecking}
+            >
+              {scanChecking ? 'Refreshing…' : 'Refresh'}
+            </button>
+            <button type="button" className="url-btn" onClick={() => void dismissScan()} disabled={saving}>
+              Dismiss scan
+            </button>
+          </div>
+        )}
+
         {error && <div className="error-banner">{error}</div>}
         {resultMessage && <div className="success-banner">{resultMessage}</div>}
 
@@ -412,7 +446,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
               ))}
             </ul>
             <div className="add-from-site-footer">
-              <button type="button" className="sync-btn" onClick={() => void handleSaveWithChat()} disabled={saving || selectedVisible.length === 0}>
+              <button type="button" className="sync-btn" onClick={() => void handleSave()} disabled={saving || selectedVisible.length === 0}>
                 {saving ? 'Saving…' : `Save ${selectedVisible.length} concert(s)`}
               </button>
               <button type="button" className="sync-btn sync-btn--ghost" onClick={onClose}>Close</button>
