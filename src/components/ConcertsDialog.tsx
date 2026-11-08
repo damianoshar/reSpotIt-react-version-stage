@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { resolveArtists } from '../services/remote/spotifyRemote';
 import {
   startRemoteConcertScan,
+  uploadRemoteConcertScan,
   getLatestRemoteConcertScan,
   deleteRemoteConcertScan,
   type RemoteConcertScan,
@@ -44,6 +45,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
   // Click-and-forget background scan (server-side) whose results wait for review.
   const [scan, setScan] = useState<RemoteConcertScan | null>(null);
   const [scanChecking, setScanChecking] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Turn a finished scan into review rows (correlate artists with Spotify).
   const applyScan = useCallback((next: RemoteConcertScan) => {
@@ -120,15 +122,37 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
     try {
       // Click and forget: the server runs the scan in the background and
       // streams progress into Open WebUI. Results wait on /latest for review.
-      const started = await startRemoteConcertScan(serverUrl, {
-        url: url.trim() || undefined,
-        text: url.trim() ? undefined : pasteText.trim(),
-      });
+      // A URL is fetched server-side; pasted text is wrapped as a .txt file and
+      // sent through the multipart upload path (one pipeline for paste + file).
+      const pasted = pasteText.trim();
+      const started = url.trim()
+        ? await startRemoteConcertScan(serverUrl, { url: url.trim() })
+        : await uploadRemoteConcertScan(
+            serverUrl,
+            new File([pasted], 'pasted-concerts.txt', { type: 'text/plain' }),
+          );
       setScan(started);
       setResultMessage('Scan started in the background. You can close this — results will be waiting when you return.');
       setUrl(''); setPasteText('');
     } catch (e: any) {
       setError(e?.message ?? 'Could not start the scan.');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so the same file can be chosen again later.
+    e.target.value = '';
+    if (!file) return;
+    setError(''); setResultMessage(''); setScanning(true); setRows([]); setUnresolved([]);
+    try {
+      const started = await uploadRemoteConcertScan(serverUrl, file);
+      setScan(started);
+      setResultMessage(`Uploaded ${file.name}. Scanning in the background — results will be waiting when you return.`);
+    } catch (err: any) {
+      setError(err?.message ?? 'Could not upload the file.');
     } finally {
       setScanning(false);
     }
@@ -247,8 +271,25 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
               disabled={scanning}
               rows={3}
             />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.md,.html,.htm,text/plain,text/markdown,text/html"
+              style={{ display: 'none' }}
+              onChange={(e) => void handleFileSelected(e)}
+              disabled={scanning}
+            />
             <button type="button" className="sync-btn" onClick={() => void handleScan()} disabled={scanning || (!url.trim() && !pasteText.trim())}>
               {scanning ? 'Scanning...' : 'Scan with AI'}
+            </button>
+            <button
+              type="button"
+              className="sync-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={scanning}
+              title="Upload a .txt, .md or .html file (max 5 MB)"
+            >
+              {scanning ? 'Uploading...' : 'Attach file'}
             </button>
           </div>
         ) : (

@@ -60,6 +60,8 @@ export async function clearJwt(): Promise<void> {
 interface FetchOpts {
   method?: string;
   body?: unknown;
+  /** Multipart body. Mutually exclusive with ``body``; the browser sets the boundary. */
+  form?: FormData;
   /** Attach the stored access JWT (default true; false for login/refresh/health). */
   auth?: boolean;
   /** Extra request headers (e.g. Accept for CSV downloads). */
@@ -67,16 +69,20 @@ interface FetchOpts {
 }
 
 async function rawFetch(base: string, path: string, token: string | null, opts: FetchOpts): Promise<Response> {
+  const isForm = opts.form !== undefined;
   return fetch(base + path, {
     method: opts.method ?? 'GET',
     headers: {
       // Only send a JSON content type when there is a JSON body. A bare
       // Content-Type on GETs triggers an extra CORS preflight for no reason.
-      ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      // Never set Content-Type for FormData: the browser must add the boundary.
+      ...(opts.body !== undefined && !isForm ? { 'Content-Type': 'application/json' } : {}),
       ...(opts.headers ?? {}),
       ...(token ? { Authorization: 'Bearer ' + token } : {}),
     },
-    ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
+    ...(isForm
+      ? { body: opts.form }
+      : opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
   });
 }
 
@@ -139,6 +145,13 @@ export async function apiFetch<T>(serverUrl: string, path: string, opts: FetchOp
   const res = await authorizedFetch(serverUrl, path, opts);
 
   // 204/empty bodies (e.g. DELETE) have no JSON payload.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+/** Authenticated multipart POST (file upload). Reuses the same refresh-and-retry path. */
+export async function apiPostForm<T>(serverUrl: string, path: string, form: FormData): Promise<T> {
+  const res = await authorizedFetch(serverUrl, path, { method: 'POST', form });
   const text = await res.text();
   return (text ? JSON.parse(text) : null) as T;
 }
