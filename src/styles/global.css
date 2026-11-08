@@ -1708,6 +1708,29 @@ body.board-autohide-bar .filter-bar, body.board-autohide-bar .pl-toolbar { trans
   gap: 1rem;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
 }
+
+/* Concert / add-from-site sheets scroll the overlay itself. A capped flex
+   child with its own overflow did not scroll reliably in the Android WebView,
+   especially once the scan toolbar grew. Auto margins keep the sheet centered
+   when short and resolve to 0 (top-aligned, scrollable) when tall. */
+.add-from-site-overlay {
+  align-items: flex-start;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.add-from-site-panel {
+  max-height: none;
+  overflow: visible;
+  margin: auto 0;
+}
+/* One scroll region: let the overlay scroll the whole sheet instead of
+   trapping touch inside a nested list. */
+.add-from-site-panel .add-from-site-list {
+  max-height: none;
+  overflow: visible;
+}
+
 .duplicates-group, .add-from-site-list-area { border: 1px solid var(--border, #2a2a2a); border-radius: 12px; padding: .75rem; margin-bottom: .75rem; }
 .duplicates-row { display: flex; gap: .5rem; align-items: center; padding: .25rem 0; }
 .duplicates-row-year { min-width: 3rem; opacity: .8; }
