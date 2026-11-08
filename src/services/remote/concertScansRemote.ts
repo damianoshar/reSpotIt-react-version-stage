@@ -1,4 +1,4 @@
-import { apiFetch } from './apiClient';
+import { apiFetch, apiPostForm } from './apiClient';
 
 // ---------------------------------------------------------------------------
 // Remote concert scans — click-and-forget AI extraction.
@@ -29,6 +29,8 @@ export interface RemoteConcertScan {
   items:       RemoteConcertScanItem[];
   error:       string;
   chat_id:     string;
+  source_id?:  string | null;
+  chunk_count?: number;
   created_at:  string | null;
   updated_at:  string | null;
 }
@@ -44,6 +46,19 @@ export async function startRemoteConcertScan(
     method: 'POST',
     body,
   });
+}
+
+/**
+ * Upload a text/HTML file as the scan source (multipart). The server stores
+ * the full source and extracts it in chunks, exactly like a long paste.
+ */
+export async function uploadRemoteConcertScan(
+  base: string,
+  file: File,
+): Promise<RemoteConcertScan> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  return apiPostForm<RemoteConcertScan>(base, '/api/v1/concert-scans/upload', form);
 }
 
 export async function getLatestRemoteConcertScan(base: string): Promise<RemoteConcertScan | null> {
