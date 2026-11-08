@@ -51,3 +51,25 @@ export async function resolveArtists(
   );
   return { resolved: res.resolved ?? [], unresolved: res.unresolved ?? [] };
 }
+
+export interface FollowArtistsResult {
+  total: number;
+  already_followed: number;
+  followed: number;
+}
+
+/**
+ * Follow every artist found in the signed-in account's saved Spotify albums,
+ * using the media server's own Spotify link. Used in remote mode so the tool
+ * works without a device Spotify login (docs/STORAGE-POLICY.md).
+ */
+export async function followLibraryArtistsRemote(base: string): Promise<FollowArtistsResult> {
+  const res = await apiFetch<Partial<FollowArtistsResult>>(
+    base, '/api/v1/spotify/follow-artists', { method: 'POST' },
+  );
+  return {
+    total:          res.total          ?? 0,
+    already_followed: res.already_followed ?? 0,
+    followed:       res.followed       ?? 0,
+  };
+}
