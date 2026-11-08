@@ -174,6 +174,8 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
       }));
       const csv = Papa.unparse(rows, { columns: ['id', 'title', 'artist', 'year', 'genre', 'image_url', 'added_at'] });
       const result = await onImportCsv(csv);
+      // Persist chat BEFORE closing dialog (onImported closes it)
+      await persistScanChat(`Saved ${selectedAlbums.length} album(s) to library.`);
       onImported(result);
       setResultMessage(`Imported ${result.imported}, skipped ${result.skipped}, existing ${result.existing}.`);
     } catch (e: any) {
@@ -190,6 +192,8 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
       const name = `AI scan ${new Date().toLocaleDateString()}`;
       const res = await onCreatePlaylist(selectedAlbums);
       onPlaylistCreated?.(res.name || name);
+      // Persist chat after playlist creation
+      await persistScanChat(`Created playlist with ${selectedAlbums.length} album(s).`);
       setResultMessage(`Created playlist "${res.name}" with ${res.tracksAdded} tracks.`);
     } catch (e: any) {
       setError(e?.message ?? 'Playlist creation failed.');

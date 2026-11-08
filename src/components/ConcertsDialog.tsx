@@ -154,6 +154,8 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
         created_at: new Date().toISOString(),
       }));
       await upsertConcerts(concerts);
+      // Persist chat BEFORE onSaved closes dialog
+      await persistScanChat(`Saved ${concerts.length} concert(s).`);
       onSaved?.(concerts.length);
       setResultMessage(`Saved ${concerts.length} concert(s).`);
     } catch (e: any) {
