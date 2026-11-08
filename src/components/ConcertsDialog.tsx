@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { extractConcertsFromUrl, extractConcertsFromText, type ExtractedConcert } from '../services/LLMService';
+import {
+  extractConcertsFromUrl,
+  extractConcertsFromText,
+  type ExtractedConcert,
+  listLLMChats,
+  chatWithLLM,
+  type LLMChatSummary,
+  type LLMMessage,
+  type LLMChatResult,
+} from '../services/LLMService';
 import { resolveArtists, type ResolvedArtist } from '../services/remote/spotifyRemote';
 import { upsertConcerts, type Concert } from '../services/DatabaseService';
 
@@ -20,7 +29,9 @@ interface ConcertRow {
   selected: boolean;
 }
 
-export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, serverUrl, onSaved }) => {
+export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
+  open, onClose, serverUrl, onSaved,
+}) => {
   const [url, setUrl] = useState('');
   const [pasteText, setPasteText] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -33,6 +44,28 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [resultMessage, setResultMessage] = useState('');
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [chats, setChats] = useState<LLMChatSummary[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Load chat history on mount
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    listLLMChats(serverUrl, 'extract_concerts')
+      .then((rows) => {
+        if (!cancelled) {
+          setChats(rows);
+          setHistoryLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [open, serverUrl]);
 
   if (!open) return null;
 
@@ -76,7 +109,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
     setSaving(true); setError(''); setResultMessage('');
     try {
       const concert: Concert = {
-        id: `${manualArtist}-${manualDate}`.replace(/\\s+/g, '_'),
+        id: `${manualArtist}-${manualDate}`.replace(/\s+/g, '_'),
         artist: manualArtist.trim(),
         artist_id: '',
         title: manualArtist.trim() + (manualVenue ? ` at ${manualVenue}` : ''),
@@ -129,6 +162,95 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
     }
   };
 
+  // Build context for LLM chat
+  const buildContext = (concerts: ConcertRow[]) => {
+    const lines: string[] = [];
+    if (concerts.length) {
+      lines.push('Concerts extracted from page:');
+      concerts.slice(0, 50).forEach((c) => {
+        lines.push(`- ${c.artist} — ${c.date || 'date unknown'}${c.venue ? ` at ${c.venue}` : ''}${c.followed ? ' (followed on Spotify)' : ''}`);
+      });
+    }
+    return lines.join('\n');
+  };
+
+  // Persist scan as chat turn
+  const persistScanChat = async (userPrompt: string) => {
+    if (!serverUrl) return;
+    const context = buildContext(rows);
+    const systemPrompt =
+      'You are a concert calendar assistant. The user scanned a page for concerts. ' +
+      'The extracted concerts are listed below. You can help them refine the selection, ' +
+      'follow artists on Spotify, or answer questions about the events.';
+    try {
+      const result = await chatWithLLM(serverUrl, [
+        { role: 'system', content: systemPrompt + '\n\nConcerts:\n' + context },
+        { role: 'user', content: userPrompt },
+      ], {
+        system: systemPrompt + '\n\nConcerts:\n' + context,
+        chat_id: chatId,
+        use_history: true,
+        history_limit: 20,
+        persist: true,
+        use_tools: false,
+        temperature: 0.3,
+        max_tokens: 512,
+        chat_type: 'extract_concerts',
+      });
+      if (result.chat_id) setChatId(result.chat_id);
+    } catch (e: any) {
+      console.warn('Could not persist scan chat:', e);
+    }
+  };
+
+  const handleSaveWithChat = async () => {
+    await handleSave();
+    await persistScanChat(`Saved ${rows.filter((r) => r.selected).length} concert(s).`);
+  };
+
+  const loadChat = async (chatId: string) => {
+    setHistoryLoading(true);
+    try {
+      setChatId(chatId);
+      setShowHistory(false);
+    } catch (e) {
+      console.error('Failed to load chat:', e);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const deleteChat = async (chatId: string) => {
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
+  };
+
+  const startNewChat = () => {
+    setChatId(null);
+    setRows([]);
+    setUnresolved([]);
+    setShowHistory(false);
+  };
+
+  // Load chat history on mount
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    listLLMChats(serverUrl, 'extract_concerts')
+      .then((rows) => {
+        if (!cancelled) {
+          setChats(rows);
+          setHistoryLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [open, serverUrl]);
+
+  if (!open) return null;
+
   return (
     <div className="modal-overlay add-from-site-overlay" role="presentation" onClick={onClose}>
       <div className="modal add-from-site-panel" onClick={(e) => e.stopPropagation()}>
@@ -139,8 +261,56 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
               Paste a concerts/events URL. AI extracts artists; matched followed artists are flagged.
             </p>
           </div>
-          <button className="modal-close" type="button" onClick={onClose} aria-label="Close">✕</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              type="button"
+              className="url-btn"
+              onClick={() => { setShowHistory(!showHistory); if (showHistory) setChats([]); }}
+              disabled={historyLoading}
+            >
+              {showHistory ? 'Hide scans' : `Scans (${chats.length})`}
+            </button>
+            <button className="modal-close" type="button" onClick={onClose} aria-label="Close">✕</button>
+          </div>
         </div>
+
+        {showHistory && (
+          <div className="ai-chats" style={{ marginBottom: 12, padding: 8, border: '1px solid #333', borderRadius: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <strong>Recent concert scans</strong>
+              <button type="button" className="url-btn" onClick={startNewChat} disabled={historyLoading}>
+                + New scan
+              </button>
+            </div>
+            {historyLoading && <p style={{ opacity: 0.7 }}>Loading…</p>}
+            {chats.length === 0 && !historyLoading && <p style={{ opacity: 0.7 }}>No previous scans yet.</p>}
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: 160, overflowY: 'auto' }}>
+              {chats.map((c) => (
+                <li key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #222' }}>
+                  <button
+                    type="button"
+                    className="url-btn"
+                    onClick={() => loadChat(c.id)}
+                    disabled={historyLoading}
+                    style={{ flex: 1, textAlign: 'left', fontWeight: c.id === chatId ? 700 : 400 }}
+                  >
+                    {(c.title ?? '').trim() || '(untitled)'}
+                  </button>
+                  <button
+                    type="button"
+                    className="url-btn"
+                    onClick={() => deleteChat(c.id)}
+                    disabled={historyLoading}
+                    aria-label="Delete scan"
+                    style={{ marginLeft: 8 }}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {serverUrl ? (
           <div className="add-from-site-toolbar">
@@ -196,7 +366,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({ open, onClose, s
               ))}
             </ul>
             <div className="add-from-site-footer">
-              <button type="button" className="sync-btn" onClick={() => void handleSave()} disabled={saving || !rows.some((r) => r.selected)}>
+              <button type="button" className="sync-btn" onClick={() => void handleSaveWithChat()} disabled={saving || !rows.some((r) => r.selected)}>
                 {saving ? 'Saving…' : `Save ${rows.filter((r) => r.selected).length} concert(s)`}
               </button>
               <button type="button" className="sync-btn sync-btn--ghost" onClick={onClose}>Close</button>

@@ -58,6 +58,7 @@ export interface LLMChatOptions {
   use_history?: boolean;
   history_limit?: number;
   persist?: boolean;
+  chat_type?: string;
 }
 
 export interface LLMChatSummary {
@@ -154,8 +155,9 @@ export async function extractConcertsFromText(
   return res.data?.concerts ?? [];
 }
 
-export async function listLLMChats(serverUrl: string): Promise<LLMChatSummary[]> {
-  const res = await apiFetch<{ data: LLMChatSummary[] }>(serverUrl, '/api/v1/llm/chats');
+export async function listLLMChats(serverUrl: string, chatType?: string): Promise<LLMChatSummary[]> {
+  const url = chatType ? `/api/v1/llm/chats?chat_type=${encodeURIComponent(chatType)}` : '/api/v1/llm/chats';
+  const res = await apiFetch<{ data: LLMChatSummary[] }>(serverUrl, url);
   return res.data ?? [];
 }
 
@@ -169,10 +171,10 @@ export async function getLLMChat(serverUrl: string, chatId: string): Promise<LLM
   return res.data;
 }
 
-export async function createLLMChat(serverUrl: string, title?: string, model?: string): Promise<LLMChatRow> {
+export async function createLLMChat(serverUrl: string, title?: string, model?: string, chatType?: string): Promise<LLMChatRow> {
   const res = await apiFetch<{ data: LLMChatRow }>(serverUrl, '/api/v1/llm/chats', {
     method: 'POST',
-    body: { title: title ?? null, model: model ?? null },
+    body: { title: title ?? null, model: model ?? null, chat_type: chatType ?? null },
   });
   return res.data;
 }
