@@ -3,10 +3,18 @@ import type { Album, LibraryStats } from '../types';
 import {
   chatWithLLM,
   getLLMStatus,
+  listLLMChats,
+  getCurrentLLMChat,
+  getLLMChat,
+  deleteLLMChat,
+  clearCurrentLLMChat,
+  storedChatTurns,
   modelLabel,
   type LLMChatResult,
   type LLMMessage,
   type LLMStatus,
+  type LLMChatSummary,
+  type LLMChatRow,
 } from '../services/LLMService';
 
 export interface AIAssistantDialogProps {
@@ -123,6 +131,12 @@ export const AIAssistantDialog: React.FC<AIAssistantDialogProps> = ({
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [chats, setChats] = useState<LLMChatSummary[]>([]);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [chatTitle, setChatTitle] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyOff, setHistoryOff] = useState(false);
   const messagesRef = useRef<HTMLDivElement | null>(null);
 
   const context = useMemo(
@@ -136,7 +150,29 @@ export const AIAssistantDialog: React.FC<AIAssistantDialogProps> = ({
     setStatusLoading(true);
     setStatusError('');
     getLLMStatus(serverUrl)
-      .then((next) => { if (!cancelled) setStatus(next); })
+      .then(async (next) => {
+        if (cancelled) return;
+        setStatus(next);
+        if (next?.available && (next as any)?.chat_history) {
+          try {
+            const rows = await listLLMChats(serverUrl);
+            const current = await getCurrentLLMChat(serverUrl);
+            if (cancelled) return;
+            setChats(rows);
+            setCurrentChatId(current?.id ?? null);
+            setChatTitle((current?.title ?? '').trim());
+            const turns = storedChatTurns(current);
+            setMessages(turns.map((t) => ({ role: t.role, content: t.content })));
+            setHistoryOff(false);
+          } catch (e: any) {
+            if (cancelled) return;
+            const msg = e?.message ?? '';
+            if (msg.includes('llm_chat_unavailable') || msg.includes('503')) {
+              setHistoryOff(true);
+            }
+          }
+        }
+      })
       .catch((e: any) => {
         if (!cancelled) {
           setStatus(null);
@@ -171,13 +207,46 @@ export const AIAssistantDialog: React.FC<AIAssistantDialogProps> = ({
     setError('');
     setBusy(true);
     try {
-      const apiMessages: LLMMessage[] = history.map((m) => ({ role: m.role, content: m.content }));
-      const result: LLMChatResult = await chatWithLLM(serverUrl, apiMessages, {
-        system: SYSTEM_PROMPT + (context ? `\n\nLibrary context:\n${context}` : ''),
-        temperature: 0.6,
-        max_tokens: 512,
-        use_tools: true,
-      });
+      const historyAvailable = !historyOff && !!status?.chat_history;
+      let result: LLMChatResult;
+      if (historyAvailable) {
+        try {
+          result = await chatWithLLM(serverUrl, [{ role: 'user', content: text }], {
+            system: SYSTEM_PROMPT + (context ? `\n\nLibrary context:\n${context}` : ''),
+            temperature: 0.6,
+            max_tokens: 512,
+            use_tools: true,
+            chat_id: currentChatId,
+            use_history: true,
+            history_limit: 20,
+            persist: true,
+          });
+        } catch (e: any) {
+          const msg = e?.message ?? '';
+          if (msg.includes('llm_chat_unavailable') || msg.includes('503')) {
+            setHistoryOff(true);
+            result = await chatWithLLM(serverUrl, history.map((m) => ({ role: m.role, content: m.content })), {
+              system: SYSTEM_PROMPT + (context ? `\n\nLibrary context:\n${context}` : ''),
+              temperature: 0.6,
+              max_tokens: 512,
+              use_tools: true,
+              persist: false,
+              use_history: false,
+            });
+          } else {
+            throw e;
+          }
+        }
+      } else {
+        result = await chatWithLLM(serverUrl, history.map((m) => ({ role: m.role, content: m.content })), {
+          system: SYSTEM_PROMPT + (context ? `\n\nLibrary context:\n${context}` : ''),
+          temperature: 0.6,
+          max_tokens: 512,
+          use_tools: true,
+          persist: false,
+          use_history: false,
+        });
+      }
       setMessages((previous) => [
         ...previous,
         {
@@ -187,12 +256,70 @@ export const AIAssistantDialog: React.FC<AIAssistantDialogProps> = ({
           toolCalls: result.tool_calls,
         },
       ]);
+      if (result.chat_id) setCurrentChatId(result.chat_id);
+      if (!chatTitle) setChatTitle(text.slice(0, 80));
+      if (historyAvailable && result.persisted) {
+        try {
+          const rows = await listLLMChats(serverUrl);
+          setChats(rows);
+        } catch {
+          // sidebar optional
+        }
+      }
     } catch (e: any) {
       setError(e?.message ?? 'The model did not answer.');
       setMessages((previous) => previous.slice(0, -1));
       setInput(text);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const startNewChat = async () => {
+    if (busy) return;
+    setMessages([]);
+    setError('');
+    setInput('');
+    setCurrentChatId(null);
+    setChatTitle('');
+    if (!historyOff && status?.chat_history) {
+      try { await clearCurrentLLMChat(serverUrl); } catch { /* best-effort */ }
+    }
+  };
+
+  const openChat = async (chatId: string) => {
+    if (busy || chatId === currentChatId) {
+      setHistoryOpen(false);
+      return;
+    }
+    setHistoryLoading(true);
+    setError('');
+    try {
+      const row = await getLLMChat(serverUrl, chatId);
+      setCurrentChatId(row.id);
+      setChatTitle((row.title ?? '').trim());
+      const turns = storedChatTurns(row);
+      setMessages(turns.map((t) => ({ role: t.role, content: t.content })));
+      setHistoryOpen(false);
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not open that chat.');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const deleteChat = async (chatId: string) => {
+    if (busy) return;
+    try {
+      await deleteLLMChat(serverUrl, chatId);
+      setChats((prev) => prev.filter((c) => c.id !== chatId));
+      if (currentChatId === chatId) {
+        setCurrentChatId(null);
+        setChatTitle('');
+        setMessages([]);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not delete that chat.');
     }
   };
 
@@ -234,6 +361,17 @@ export const AIAssistantDialog: React.FC<AIAssistantDialogProps> = ({
               local model; nothing is sent to a cloud service.
             </p>
           </div>
+          {isRemote && status?.chat_history && (
+            <button
+              className="url-btn"
+              type="button"
+              onClick={() => setHistoryOpen((v) => !v)}
+              aria-label="Toggle chat history"
+              style={{ marginRight: 8 }}
+            >
+              {historyOpen ? 'Hide chats' : `Chats (${chats.length})`}
+            </button>
+          )}
           <button className="modal-close" type="button" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
@@ -262,6 +400,43 @@ export const AIAssistantDialog: React.FC<AIAssistantDialogProps> = ({
 
         {isRemote && (
           <>
+            {historyOpen && isRemote && status?.chat_history && (
+              <div className="ai-chats" style={{ marginBottom: 12, padding: 8, border: '1px solid #333', borderRadius: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <strong>Chats</strong>
+                  <button type="button" className="url-btn" onClick={() => void startNewChat()} disabled={busy}>
+                    + New chat
+                  </button>
+                </div>
+                {historyLoading && <p style={{ opacity: 0.7 }}>Loading…</p>}
+                {chats.length === 0 && !historyLoading && <p style={{ opacity: 0.7 }}>No saved chats yet.</p>}
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: 160, overflowY: 'auto' }}>
+                  {chats.map((c) => (
+                    <li key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #222' }}>
+                      <button
+                        type="button"
+                        className="url-btn"
+                        onClick={() => void openChat(c.id)}
+                        disabled={busy}
+                        style={{ flex: 1, textAlign: 'left', fontWeight: c.id === currentChatId ? 700 : 400 }}
+                      >
+                        {(c.title ?? '').trim() || '(untitled)'}
+                      </button>
+                      <button
+                        type="button"
+                        className="url-btn"
+                        onClick={() => void deleteChat(c.id)}
+                        disabled={busy}
+                        aria-label="Delete chat"
+                        style={{ marginLeft: 8 }}
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="ai-messages" ref={messagesRef}>
               {messages.length === 0 && status?.available && (
                 <div className="ai-empty">
