@@ -44,7 +44,6 @@ Environment (on the API service):
 | `OPENWEBUI_URL` | `http://localhost:3000` | Open WebUI base URL. In Docker: `http://host.docker.internal:3000`. |
 | `OPENWEBUI_API_KEY` | empty (disabled) | Open WebUI personal access token (`sk-...`). |
 | `OPENWEBUI_MODEL` | first listed model | Optional model id. |
-| `LLM_TIMEOUT` | `180` | Read timeout, seconds. |
 
 Endpoints:
 
