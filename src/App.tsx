@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Header }                from './components/Header';
 import { StatsBar }              from './components/StatsBar';
 import { FilterBar }             from './components/FilterBar';
@@ -28,7 +28,7 @@ import { ConcertsListDialog } from './components/ConcertsListDialog';import { AI
 import { ArtistDiscographyDialog } from './components/ArtistDiscographyDialog';
 import { findDuplicates }         from './utils/duplicateFinder';
 import type { DuplicateGroup, DuplicateAlbum } from './utils/duplicateFinder';
-import { getHiddenDuplicateAlbums, hideDuplicateAlbums, restoreHiddenDuplicates, unhideDuplicateIds } from './utils/duplicateBlocklist';
+import { listHiddenDuplicates, hideDuplicates, restoreHidden } from './services/storage';
 import { SyncPhotosProvider }     from './contexts/SyncPhotosContext';
 import { getExportAlbums, getExistingAlbumIds, upsertAlbum, saveToStore } from './services/DatabaseService';
 import { exportRemoteBackup }   from './services/remote/libraryRemote';
@@ -100,6 +100,10 @@ export default function App() {
   const backup = useBackupSettings();
   const pld    = usePlaylistDashboard({ mode: ds.settings.mode, serverUrl: ds.settings.serverUrl, sessionActive });
   const isRemote = ds.settings.mode === 'remote';
+  const storageCtx = useMemo(
+    () => ({ remote: isRemote, serverUrl: ds.settings.serverUrl }),
+    [isRemote, ds.settings.serverUrl],
+  );
   const remoteOpt = isRemote ? { serverUrl: ds.settings.serverUrl } : null;
 
   const openPlaylistId = pld.selectedPlaylist?.id ?? null;
@@ -240,8 +244,8 @@ export default function App() {
       .catch(() => {});
   }, []);
   useEffect(() => {
-    getHiddenDuplicateAlbums().then((albums) => setHiddenDuplicateAlbums(albums)).catch(() => {});
-  }, []);
+    listHiddenDuplicates(storageCtx).then((albums) => setHiddenDuplicateAlbums(albums)).catch(() => {});
+  }, [storageCtx]);
 
   const handleToggleAutohide = useCallback((on: boolean) => {
     setAutohideNav(on);
@@ -259,18 +263,11 @@ export default function App() {
   }, []);
 
   const runDuplicateScan = useCallback(async () => {
-    if (ds.settings.mode === 'remote') {
-      setDupesOpen(true);
-      setDuplicateGroups([]);
-      setHiddenDuplicateAlbums([]);
-      showToast('Duplicate cleanup is available in local mode only.', false);
-      return;
-    }
     setDupesOpen(true);
     setDuplicatesLoading(true);
     setDuplicateGroups(null);
     try {
-      const hidden = await getHiddenDuplicateAlbums();
+      const hidden = await listHiddenDuplicates(storageCtx);
       setHiddenDuplicateAlbums(hidden);
       const hiddenIds = new Set(hidden.map((a) => a.id));
       const all = await lib.getAlbumsForDuplicateScan();
@@ -279,19 +276,21 @@ export default function App() {
       showToast(e?.message ?? 'Could not scan for duplicates.', false);
       setDuplicateGroups([]);
     } finally { setDuplicatesLoading(false); }
-  }, [ds.settings.mode, lib, showToast]);
+  }, [lib, showToast, storageCtx]);
 
   const handleDuplicateRemove = useCallback(async (ids: string[]) => {
     if (!ids.length) return;
     const selected = (duplicateGroups ?? []).flatMap((group) => group.albums).filter((album) => ids.includes(album.id));
-    await hideDuplicateAlbums(selected);
+    await hideDuplicates(storageCtx, selected);
+    // Local: drop the hidden rows from SQLite (restorable). Remote: leave the
+    // server library untouched — hiding is enough and stays reversible.
     await lib.deleteLocalAlbums(ids);
-    const hidden = await getHiddenDuplicateAlbums();
+    const hidden = await listHiddenDuplicates(storageCtx);
     setHiddenDuplicateAlbums(hidden);
     const hiddenIds = new Set(hidden.map((a) => a.id));
     const all = await lib.getAlbumsForDuplicateScan();
     setDuplicateGroups(findDuplicates(all.filter((album) => !hiddenIds.has(album.id))));
-  }, [duplicateGroups, lib]);
+  }, [duplicateGroups, lib, storageCtx]);
 
   const handleDuplicateRemovePermanent = useCallback(async (ids: string[]) => {
     if (!ids.length) return;
@@ -306,12 +305,12 @@ export default function App() {
       return;
     }
     try { await lib.deleteLocalAlbums(ids); } catch { /* best effort */ }
-    const hidden = await getHiddenDuplicateAlbums();
+    const hidden = await listHiddenDuplicates(storageCtx);
     const hiddenIds = new Set(hidden.map((a) => a.id));
     const all = await lib.getAlbumsForDuplicateScan();
     setDuplicateGroups(findDuplicates(all.filter((album) => !hiddenIds.has(album.id))));
     showToast(`Permanently removed ${ids.length} duplicate album(s) from Spotify.`, true);
-  }, [lib]);
+  }, [lib, storageCtx]);
 
   const handleRemoveSelectedFromLibrary = useCallback(async () => {
     const ids = [...sel.selected];
@@ -374,23 +373,27 @@ export default function App() {
 
   const handleDuplicateRestore = useCallback(async () => {
     try {
-      const restored = await restoreHiddenDuplicates();
-      for (const album of restored) {
-        await upsertAlbum({
-          id: album.id,
-          title: album.title,
-          artist: album.artist,
-          year: album.year,
-          genre: album.genre ?? '',
-          image_url: album.image_url ?? '',
-          image_path: album.image_path ?? '',
-          added_at: album.added_at ?? '',
-          album_type: album.album_type ?? '',
-          popularity: album.popularity ?? null,
-          spotify_url: album.spotify_url ?? '',
-        });
+      const restored = await restoreHidden(storageCtx);
+      // Local: put the hidden albums back into SQLite. Remote: the albums were
+      // never removed from the server library, so only the blocklist changes.
+      if (!isRemote) {
+        for (const album of restored) {
+          await upsertAlbum({
+            id: album.id,
+            title: album.title,
+            artist: album.artist,
+            year: album.year,
+            genre: album.genre ?? '',
+            image_url: album.image_url ?? '',
+            image_path: album.image_path ?? '',
+            added_at: album.added_at ?? '',
+            album_type: album.album_type ?? '',
+            popularity: album.popularity ?? null,
+            spotify_url: album.spotify_url ?? '',
+          });
+        }
+        await saveToStore();
       }
-      await saveToStore();
       await lib.refresh();
       setHiddenDuplicateAlbums([]);
       const all = await lib.getAlbumsForDuplicateScan();
@@ -399,7 +402,7 @@ export default function App() {
     } catch (e: any) {
       showToast(e?.message ?? 'Could not restore hidden albums.', false);
     }
-  }, [lib, showToast]);
+  }, [lib, showToast, storageCtx, isRemote]);
   const handleAiScanCreatePlaylist = useCallback(async (albums: { spotify_id: string; title: string; artist_name: string; year: number; image_url: string }[]) => {
     const name = `AI scan ${new Date().toLocaleDateString()}`;
     if (isRemote) {
@@ -900,8 +903,8 @@ export default function App() {
               <section className="settings-section" style={{ width: '100%' }}>
                 <h3 className="settings-heading">Library tools</h3>
                 <p className="settings-sub">
-                  Local-only tools: duplicate releases are detected on the device and are not
-                  removed from your Spotify account.
+                  Duplicate releases are detected from your library and hidden reversibly —
+                  nothing is removed from your Spotify account.
                 </p>
                 <button
                   type="button"
@@ -1033,6 +1036,7 @@ export default function App() {
                 open={concertsScanOpen}
                 onClose={() => setConcertsScanOpen(false)}
                 serverUrl={ds.settings.serverUrl}
+                isRemote={isRemote}
                 onSaved={(count) => {
                   setConcertsScanOpen(false);
                   showToast(`Saved ${count} concert(s).`, true);
@@ -1043,6 +1047,8 @@ export default function App() {
               <ConcertsListDialog
                 open={concertsListOpen}
                 onClose={() => setConcertsListOpen(false)}
+                serverUrl={ds.settings.serverUrl}
+                isRemote={isRemote}
               />
             )}
             {discographyOpen && (

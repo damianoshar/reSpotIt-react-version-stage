@@ -1,33 +1,39 @@
 import React, { useEffect, useState } from 'react';
-import { getConcerts, deleteConcert, clearConcerts, type Concert } from '../services/DatabaseService';
+import type { Concert } from '../services/DatabaseService';
+import { listConcerts, removeConcert, clearAllConcerts } from '../services/storage';
 
 export interface ConcertsListDialogProps {
   open: boolean;
   onClose: () => void;
+  serverUrl: string;
+  isRemote: boolean;
 }
 
-export const ConcertsListDialog: React.FC<ConcertsListDialogProps> = ({ open, onClose }) => {
+export const ConcertsListDialog: React.FC<ConcertsListDialogProps> = ({
+  open, onClose, serverUrl, isRemote,
+}) => {
+  const ctx = { remote: isRemote, serverUrl };
   const [concerts, setConcerts] = useState<Concert[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const load = async () => {
     setLoading(true); setError('');
-    try { setConcerts(await getConcerts()); }
+    try { setConcerts(await listConcerts(ctx)); }
     catch (e: any) { setError(e?.message ?? 'Could not load concerts.'); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { if (open) void load(); }, [open]);
+  useEffect(() => { if (open) void load(); }, [open, isRemote, serverUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDelete = async (id: string) => {
-    try { await deleteConcert(id); await load(); }
+    try { await removeConcert(ctx, id); await load(); }
     catch (e: any) { setError(e?.message ?? 'Delete failed.'); }
   };
 
   const handleClear = async () => {
     if (!confirm('Delete all saved concerts?')) return;
-    try { await clearConcerts(); await load(); }
+    try { await clearAllConcerts(ctx); await load(); }
     catch (e: any) { setError(e?.message ?? 'Clear failed.'); }
   };
 

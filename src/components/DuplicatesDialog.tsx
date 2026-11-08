@@ -112,7 +112,7 @@ export const DuplicatesDialog: React.FC<DuplicatesDialogProps> = ({
 
         {isRemote && (
           <div className="sync-error" role="alert">
-            Remote mode: this is a local-review action. Server-side duplicate hiding is not implemented yet.
+            Remote mode: hidden duplicates are stored on your media server and can be restored at any time.
           </div>
         )}
 

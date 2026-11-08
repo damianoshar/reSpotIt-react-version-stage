@@ -249,8 +249,8 @@ export const SyncModal: React.FC<Props> = ({
                 <div className="device-sync">
                   <p className="sync-desc">This device &harr; server</p>
                   <p className="sync-desc device-sync-hint">
-                    Push mirrors this device's local library to your server account.
-                    Pull replaces this device's local library with the server copy.
+                    Push mirrors this device's local library, concerts and hidden duplicates
+                    to your server account. Pull replaces the local copies with the server's.
                   </p>
                   <div className="device-sync-btns">
                     {onPushLocalToServer && prompt !== 'confirm-push' && (
@@ -278,9 +278,9 @@ export const SyncModal: React.FC<Props> = ({
                   {prompt === 'confirm-push' && (
                     <div className="clean-confirm">
                       <p className="clean-warn">
-                        &#x26A0; This replaces your server account's albums with this
-                        device's local library. Albums on the server that are not on
-                        this device will be removed. Playlists and tracks are not touched.
+                        &#x26A0; This replaces your server account's albums, concerts and
+                        hidden duplicates with this device's copies. Server data that is not
+                        on this device will be removed. Playlists and tracks are not touched.
                       </p>
                       <div className="clean-confirm-btns">
                         <button className="sync-btn" onClick={() => setPrompt('none')}
@@ -298,9 +298,9 @@ export const SyncModal: React.FC<Props> = ({
                   {prompt === 'confirm-pull' && (
                     <div className="clean-confirm">
                       <p className="clean-warn">
-                        &#x26A0; This replaces this device's local library with the
-                        server's. Albums that are not on the server will be removed from
-                        this device. Playlists are not touched.
+                        &#x26A0; This replaces this device's local library, concerts and
+                        hidden duplicates with the server's. Data that is not on the server
+                        will be removed from this device. Playlists are not touched.
                       </p>
                       <div className="clean-confirm-btns">
                         <button className="sync-btn" onClick={() => setPrompt('none')}

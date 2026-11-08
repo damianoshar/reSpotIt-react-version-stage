@@ -49,6 +49,16 @@ export async function restoreHiddenDuplicates(): Promise<DuplicateAlbum[]> {
   return albums;
 }
 
+/**
+ * Overwrites the entire local hidden-duplicate store. Used by "pull from server"
+ * so the device mirrors the server's canonical blocklist exactly.
+ */
+export async function replaceHiddenDuplicateAlbums(albums: DuplicateAlbum[]): Promise<void> {
+  const ids = albums.map((a) => a.id);
+  await Preferences.set({ key: IDS_KEY, value: JSON.stringify(ids) });
+  await Preferences.set({ key: ALBUMS_KEY, value: JSON.stringify(albums) });
+}
+
 // Backwards-compatible alias used by the earlier import path.
 export async function hideDuplicateIds(ids: string[]): Promise<void> {
   await hideDuplicateAlbums(ids.map((id) => ({ id, title: '', artist: '', year: 0 })));

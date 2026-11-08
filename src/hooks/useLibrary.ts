@@ -4,6 +4,7 @@ import {
   initDB, getAllAlbums, countAlbums, getDistinctGenres, getDistinctArtists,
   getDistinctYears, getStats, clearLibrary, upsertAlbum, saveToStore,
   getExistingAlbumIds, getExportAlbums, upsertAlbums, PAGE_SIZE, deleteAlbums,
+  getConcerts, upsertConcerts, clearConcerts,
 } from '../services/DatabaseService';
 import { importFromCSV, SyncResult } from '../services/SyncService';
 import { albumsToCSV } from '../services/ExportService';
@@ -12,13 +13,15 @@ import {
   CancellationToken, SyncCancelledError,
 } from '../services/SpotifyApiService';
 import { useDebounce, yearStr } from '../utils/debounce';
-import { getHiddenDuplicateIds } from '../utils/duplicateBlocklist';
+import { getHiddenDuplicateIds, getHiddenDuplicateAlbums, replaceHiddenDuplicateAlbums } from '../utils/duplicateBlocklist';
 import { DataSourceMode } from '../config/server';
 import {
   queryRemoteAlbums, fetchRemoteStats, fetchRemoteFilterOptions,
   startRemoteSync, pollRemoteSync, cancelRemoteJob,
   importRemoteCsv, clearRemoteLibrary,
 } from '../services/remote/libraryRemote';
+import { listRemoteConcerts, importRemoteConcerts } from '../services/remote/concertsRemote';
+import { listRemoteHiddenDuplicates, importRemoteHiddenDuplicates } from '../services/remote/duplicatesRemote';
 import { describeRemoteError } from '../services/errorCodes';
 
 // ---------------------------------------------------------------------------
@@ -343,9 +346,14 @@ export function useLibrary(ds: { mode: DataSourceMode; serverUrl: string; sessio
   }, []);
 
   const getAlbumsForDuplicateScan = useCallback(async (): Promise<Album[]> => {
-    if (remote) return [];
+    if (remote) {
+      // Remote mode scans the server's canonical library, not the empty device
+      // SQLite copy — the duplicate finder must work in both modes.
+      const page = await queryRemoteAlbums(serverUrl, DEFAULT_FILTER, 100000, 0);
+      return page.albums;
+    }
     return getExportAlbums();
-  }, [remote]);
+  }, [remote, serverUrl]);
 
   const deleteLocalAlbums = useCallback(async (ids: string[]): Promise<void> => {
     if (remote || !ids.length) return;
@@ -353,11 +361,11 @@ export function useLibrary(ds: { mode: DataSourceMode; serverUrl: string; sessio
     await forceRefresh();
   }, [forceRefresh, remote]);
 
-  // ── Device ↔ server library transfer ─────────────────────────────────────
-  // Push mirrors this device's local SQLite library onto the signed-in server
-  // account (`replace: true`), matching the Kotlin "Push & mirror" action.
-  // Pull does the reverse: it replaces the local SQLite copy with the server's
-  // library so local mode can work offline from the same data.
+  // ── Device ↔ server canonical-data transfer ───────────────────────────────
+  // Push mirrors this device's canonical data onto the signed-in server account
+  // (`replace: true`): albums (CSV) + concerts + hidden duplicates. Pull does
+  // the reverse, replacing the local copies so local mode works offline from the
+  // same data (docs/STORAGE-POLICY.md).
   const pushLocalToServer = useCallback(async (): Promise<SyncResult> => {
     if (!remote || !serverUrl) throw new Error('Switch to server mode first');
     await initDB();
@@ -366,6 +374,15 @@ export function useLibrary(ds: { mode: DataSourceMode; serverUrl: string; sessio
       throw new Error('This device has no local library yet — sync locally first');
     }
     const result = await importRemoteCsv(serverUrl, albumsToCSV(albums), true);
+    // Concerts and hidden duplicates are server-canonical too now: mirror them
+    // so a phone that synced locally becomes the source of truth for the whole
+    // account, not just the album table.
+    const [concerts, hidden] = await Promise.all([
+      getConcerts(),
+      getHiddenDuplicateAlbums(),
+    ]);
+    await importRemoteConcerts(serverUrl, concerts, true);
+    await importRemoteHiddenDuplicates(serverUrl, hidden, true);
     await forceRefresh();
     return result;
   }, [forceRefresh, remote, serverUrl]);
@@ -385,9 +402,16 @@ export function useLibrary(ds: { mode: DataSourceMode; serverUrl: string; sessio
     if (!all.length) {
       throw new Error('The server library is empty — local library left unchanged');
     }
+    const [concerts, hidden] = await Promise.all([
+      listRemoteConcerts(serverUrl),
+      listRemoteHiddenDuplicates(serverUrl),
+    ]);
     await initDB();
     await clearLibrary();
     await upsertAlbums(all);
+    await clearConcerts();
+    await upsertConcerts(concerts);
+    await replaceHiddenDuplicateAlbums(hidden);
     await saveToStore();
     await forceRefresh();
     return all.length;

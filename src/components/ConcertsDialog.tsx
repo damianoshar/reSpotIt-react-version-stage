@@ -11,12 +11,14 @@ import {
   type LLMChatResult,
 } from '../services/LLMService';
 import { resolveArtists, type ResolvedArtist } from '../services/remote/spotifyRemote';
-import { upsertConcerts, type Concert } from '../services/DatabaseService';
+import { type Concert } from '../services/DatabaseService';
+import { saveConcerts } from '../services/storage';
 
 export interface ConcertsDialogProps {
   open: boolean;
   onClose: () => void;
   serverUrl: string;
+  isRemote: boolean;
   onSaved?: (count: number) => void;
 }
 
@@ -31,7 +33,7 @@ interface ConcertRow {
 }
 
 export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
-  open, onClose, serverUrl, onSaved,
+  open, onClose, serverUrl, isRemote, onSaved,
 }) => {
   const [url, setUrl] = useState('');
   const [pasteText, setPasteText] = useState('');
@@ -123,7 +125,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
         followed: false,
         created_at: new Date().toISOString(),
       };
-      await upsertConcerts([concert]);
+      await saveConcerts({ remote: isRemote, serverUrl }, [concert]);
       onSaved?.(1);
       setResultMessage('Saved 1 concert.');
       setManualArtist(''); setManualDate(''); setManualVenue(''); setManualUrl('');
@@ -155,7 +157,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
         followed: r.followed,
         created_at: new Date().toISOString(),
       }));
-      await upsertConcerts(concerts);
+      await saveConcerts({ remote: isRemote, serverUrl }, concerts);
       // Persist chat BEFORE onSaved closes dialog
       await persistScanChat(`Saved ${concerts.length} concert(s).`);
       onSaved?.(concerts.length);
