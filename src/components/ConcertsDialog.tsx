@@ -49,6 +49,8 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
   const [chats, setChats] = useState<LLMChatSummary[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Default to correlating the scan with the user's followed Spotify artists.
+  const [followedOnly, setFollowedOnly] = useState(true);
 
   // Load chat history on mount
   useEffect(() => {
@@ -93,7 +95,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
           url: c.url,
           spotify_id: match?.spotify_id ?? '',
           followed: match?.followed ?? false,
-          selected: true,
+          selected: match?.followed ?? false,
         };
       });
       setRows(nextRows);
@@ -137,7 +139,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
   };
 
   const handleSave = async () => {
-    const selectedRows = rows.filter((r) => r.selected);
+    const selectedRows = rows.filter((r) => r.selected && (!followedOnly || r.followed));
     if (!selectedRows.length) return;
     setSaving(true); setError(''); setResultMessage('');
     try {
@@ -208,7 +210,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
 
   const handleSaveWithChat = async () => {
     await handleSave();
-    await persistScanChat(`Saved ${rows.filter((r) => r.selected).length} concert(s).`);
+    await persistScanChat(`Saved ${selectedVisible.length} concert(s).`);
   };
 
   const loadChat = async (chatId: string) => {
@@ -239,6 +241,13 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
     setShowHistory(false);
   };
 
+  // Correlation helpers: what the user sees and can save under the current filter.
+  const followedCount = rows.filter((r) => r.followed).length;
+  const visibleRows = rows
+    .map((r, i) => ({ r, i }))
+    .filter(({ r }) => !followedOnly || r.followed);
+  const selectedVisible = rows.filter((r) => r.selected && (!followedOnly || r.followed));
+
   // Load chat history on mount
   useEffect(() => {
     if (!open) return;
@@ -266,7 +275,8 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
           <div className="modal-header-titles">
             <h2>Scan concerts (AI)</h2>
             <p className="modal-description">
-              Paste a concerts/events URL. AI extracts artists; matched followed artists are flagged.
+              Paste a concerts/events URL or text. AI extracts artists and correlates them
+              with the artists you follow on Spotify; the list defaults to your followed artists.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -358,8 +368,34 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
 
         {rows.length > 0 && (
           <>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '10px 0 4px' }}>
+              <button
+                type="button"
+                className="url-btn"
+                onClick={() => setFollowedOnly(true)}
+                style={{ fontWeight: followedOnly ? 700 : 400 }}
+              >
+                Followed ({followedCount})
+              </button>
+              <button
+                type="button"
+                className="url-btn"
+                onClick={() => setFollowedOnly(false)}
+                style={{ fontWeight: followedOnly ? 400 : 700 }}
+              >
+                All ({rows.length})
+              </button>
+            </div>
+            {followedOnly && followedCount === 0 && (
+              <p className="muted" style={{ margin: '4px 0' }}>
+                No concerts by artists you follow.{' '}
+                <button type="button" className="url-btn" onClick={() => setFollowedOnly(false)}>
+                  Show all {rows.length}
+                </button>
+              </p>
+            )}
             <ul className="add-from-site-list">
-              {rows.map((r, i) => (
+              {visibleRows.map(({ r, i }) => (
                 <li key={i} className="add-from-site-item">
                   <label>
                     <input type="checkbox" checked={r.selected} onChange={() => toggle(i)} />
@@ -374,8 +410,8 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
               ))}
             </ul>
             <div className="add-from-site-footer">
-              <button type="button" className="sync-btn" onClick={() => void handleSaveWithChat()} disabled={saving || !rows.some((r) => r.selected)}>
-                {saving ? 'Saving…' : `Save ${rows.filter((r) => r.selected).length} concert(s)`}
+              <button type="button" className="sync-btn" onClick={() => void handleSaveWithChat()} disabled={saving || selectedVisible.length === 0}>
+                {saving ? 'Saving…' : `Save ${selectedVisible.length} concert(s)`}
               </button>
               <button type="button" className="sync-btn sync-btn--ghost" onClick={onClose}>Close</button>
             </div>
