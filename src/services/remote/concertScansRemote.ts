@@ -51,13 +51,17 @@ export async function startRemoteConcertScan(
 /**
  * Upload a text/HTML file as the scan source (multipart). The server stores
  * the full source and extracts it in chunks, exactly like a long paste.
+ * [sourceUrl] is set for a WebView page snapshot so the scan keeps the page it
+ * came from; the server never re-fetches it.
  */
 export async function uploadRemoteConcertScan(
   base: string,
   file: File,
+  sourceUrl?: string,
 ): Promise<RemoteConcertScan> {
   const form = new FormData();
   form.append('file', file, file.name);
+  if (sourceUrl?.trim()) form.append('source_url', sourceUrl.trim());
   return apiPostForm<RemoteConcertScan>(base, '/api/v1/concert-scans/upload', form);
 }
 

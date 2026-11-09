@@ -37,6 +37,7 @@ public class AddFromSitePlugin extends Plugin {
   private final Set<String> detected = new LinkedHashSet<>();
   private TextView status;
   private String currentUrl = "https://open.spotify.com";
+  private String mode = "albums";
   private final Handler main = new Handler(Looper.getMainLooper());
 
   @PluginMethod
@@ -48,6 +49,7 @@ public class AddFromSitePlugin extends Plugin {
     pendingCall = call;
     resolved = false;
     detected.clear();
+    mode = call.getString("mode", "albums");
     String initial = call.getString("url", "https://open.spotify.com");
     getActivity().runOnUiThread(() -> showDialog(initial));
   }
@@ -94,6 +96,11 @@ public class AddFromSitePlugin extends Plugin {
     result.put("ids", ids);
     result.put("url", currentUrl);
     result.put("cancelled", cancelled);
+    finish(result);
+  }
+
+  /** Resolve the pending call with [result] and tear the browser down. */
+  private void finish(final JSObject result) {
     final PluginCall call = pendingCall;
     main.post(() -> {
       if (call != null) call.resolve(result);
@@ -107,7 +114,52 @@ public class AddFromSitePlugin extends Plugin {
     });
   }
 
+  /**
+   * Concert mode: capture the *rendered* page text. A server-side fetch cannot
+   * run the page's JavaScript, so JS-built listings look empty there; this is
+   * the text the user actually sees.
+   */
+  private void snapshotForConcerts() {
+    if (webView == null) return;
+    setStatus("Reading the page…");
+    final String js = "(function(){ try { return document.body ? document.body.innerText : ''; }"
+        + " catch(e){ return ''; } })()";
+    webView.evaluateJavascript(js, value -> {
+      final String text = parseJsString(value);
+      if (text.trim().length() < 120) {
+        setStatus("This page has almost no readable text. Scroll it, wait for the listings "
+            + "to load, then tap Scan concerts again.");
+        return;
+      }
+      main.post(() -> {
+        if (resolved) return;
+        resolved = true;
+        JSObject result = new JSObject();
+        result.put("ids", new JSONArray());
+        result.put("url", currentUrl);
+        result.put("text", text);
+        result.put("cancelled", false);
+        finish(result);
+      });
+    });
+  }
+
+  /** Decode the JSON-encoded string that evaluateJavascript returns. */
+  private String parseJsString(String raw) {
+    if (raw == null || "null".equals(raw)) return "";
+    String trimmed = raw.trim();
+    if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+      try {
+        return new org.json.JSONArray("[" + trimmed + "]").getString(0);
+      } catch (Exception ignored) {
+        return trimmed.substring(1, trimmed.length() - 1);
+      }
+    }
+    return raw;
+  }
+
   private void showDialog(String initial) {
+    final boolean concertsMode = "concerts".equals(mode);
     String url = initial == null || initial.trim().isEmpty()
         ? "https://open.spotify.com"
         : initial.trim();
@@ -156,8 +208,11 @@ public class AddFromSitePlugin extends Plugin {
     go.setOnClickListener(v -> navigateFromInput(input));
 
     Button scan = new Button(activity);
-    scan.setText("Scan");
-    scan.setOnClickListener(v -> scanPage());
+    scan.setText(concertsMode ? "Scan concerts" : "Scan");
+    scan.setOnClickListener(v -> {
+      if (concertsMode) snapshotForConcerts();
+      else scanPage();
+    });
 
     Button close = new Button(activity);
     close.setText("Close");
@@ -192,7 +247,10 @@ public class AddFromSitePlugin extends Plugin {
         super.onPageFinished(view, url);
         currentUrl = url;
         input.setText(url);
-        scanPage();
+        // Album link detection only; a concert snapshot is explicit (the user
+        // taps "Scan concerts" once the listings are visible).
+        if (!concertsMode) scanPage();
+        else setStatus("Page loaded. Scroll to the listings, then tap Scan concerts.");
       }
 
       @Override
@@ -218,7 +276,7 @@ public class AddFromSitePlugin extends Plugin {
     status.setPadding(pad, pad, pad, pad);
 
     final Button done = new Button(activity);
-    done.setText("Done (0 detected)");
+    done.setText(concertsMode ? "Close" : "Done (0 detected)");
     done.setOnClickListener(v -> close(true));
 
     body.addView(webView, new LinearLayout.LayoutParams(
@@ -246,9 +304,11 @@ public class AddFromSitePlugin extends Plugin {
     Thread thread = new Thread(() -> {
       try {
         while (dialog != null && dialog.isShowing()) {
-          main.post(() -> {
-            if (done != null) done.setText("Done (" + detected.size() + " detected)");
-          });
+          if (!concertsMode) {
+            main.post(() -> {
+              if (done != null) done.setText("Done (" + detected.size() + " detected)");
+            });
+          }
           Thread.sleep(600);
         }
       } catch (InterruptedException ignored) {

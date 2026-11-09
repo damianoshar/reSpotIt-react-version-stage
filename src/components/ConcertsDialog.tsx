@@ -15,6 +15,7 @@ import {
 } from '../services/remote/concertScansRemote';
 import { type Concert } from '../services/DatabaseService';
 import { saveConcerts } from '../services/storage';
+import { isNativeApp, openConcertPageSnapshot } from '../services/addFromSite';
 
 export interface ConcertsDialogProps {
   open: boolean;
@@ -167,6 +168,34 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
       setUrl(''); setPasteText('');
     } catch (e: any) {
       setError(e?.message ?? 'Could not start the scan.');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  // Snapshot the rendered page from the in-app browser, then upload that text
+  // as the scan source. A server-side fetch cannot run the page's JavaScript,
+  // so this is the only way to scan JS-built listings (Songkick etc.).
+  const handleBrowserSnapshot = async () => {
+    setError(''); setResultMessage(''); setScanning(true); setRows([]); setUnresolved([]);
+    try {
+      const snap = await openConcertPageSnapshot(url.trim());
+      if (!snap) return; // the user closed the browser
+      const text = snap.text.trim();
+      if (!text) {
+        setError('The page had no readable text. Wait for it to finish loading, then try again.');
+        return;
+      }
+      const started = await uploadRemoteConcertScan(
+        serverUrl,
+        new File([text], 'page-snapshot.txt', { type: 'text/plain' }),
+        snap.url,
+      );
+      setScan(started);
+      setResultMessage('Captured the page and started the scan. Results will be waiting when you return.');
+      setUrl('');
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not snapshot the page.');
     } finally {
       setScanning(false);
     }
@@ -395,6 +424,17 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
             >
               {scanning ? 'Uploading…' : 'Attach file'}
             </button>
+            {isNativeApp() && (
+              <button
+                type="button"
+                className="sync-btn"
+                onClick={() => void handleBrowserSnapshot()}
+                disabled={scanning || !url.trim()}
+                title="Open the page in the app's browser, then capture the rendered text (works on JS-built listings)"
+              >
+                Open in browser and scan
+              </button>
+            )}
             <button type="button" className="sync-btn" onClick={() => void handleScan()} disabled={scanning || (!url.trim() && !pasteText.trim())}>
               {scanning ? 'Scanning…' : 'Scan with AI'}
             </button>
