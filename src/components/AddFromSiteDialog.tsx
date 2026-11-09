@@ -6,6 +6,8 @@ import { SPOTIFY_API_URL } from '../config/spotify';
 import { openAddFromSiteBrowser, isNativeApp } from '../services/addFromSite';
 import { unhideDuplicateIds } from '../utils/duplicateBlocklist';
 import type { SyncResult } from '../services/SyncService';
+import { LinkHistory } from './LinkHistory';
+import { recordRecent } from '../services/linkHistory';
 
 export interface AddFromSiteDialogProps {
   open: boolean;
@@ -77,6 +79,7 @@ export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({ open, onCl
     setError('');
     setScanning(true);
     try {
+      if (url.trim()) recordRecent('site', url.trim(), 'url');
       const response = await openAddFromSiteBrowser(url);
       if (response) {
         setUrl(response.url || url);
@@ -125,6 +128,8 @@ export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({ open, onCl
       setError('No Spotify album links found in that text.');
       return;
     }
+    if (pasteText.trim()) recordRecent('site', pasteText.trim(), 'text');
+    else if (url.trim()) recordRecent('site', url.trim(), 'url');
     mergeIds(found);
     setError('');
   };
@@ -198,6 +203,14 @@ export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({ open, onCl
                 onChange={(event) => setUrl(event.target.value)}
                 disabled={scanning}
               />
+              <LinkHistory
+                kind="site"
+                value={url}
+                target="url"
+                accept={['url']}
+                onPick={(picked) => setUrl(picked)}
+                disabled={scanning}
+              />
             </>
           ) : (
             <>
@@ -210,6 +223,15 @@ export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({ open, onCl
               <button type="button" className="sync-btn sync-btn--ghost full-width" onClick={addFromText}>
                 Detect links in pasted text
               </button>
+              <LinkHistory
+                kind="site"
+                value={url.trim() || pasteText}
+                target={url.trim() ? 'url' : 'text'}
+                onPick={(picked, pickedTarget) => {
+                  if (pickedTarget === 'url') { setUrl(picked); setPasteText(''); }
+                  else { setPasteText(picked); setUrl(''); }
+                }}
+              />
               <iframe
                 ref={frameRef}
                 title="Web preview"

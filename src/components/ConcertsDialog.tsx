@@ -16,6 +16,8 @@ import {
 import { type Concert } from '../services/DatabaseService';
 import { saveConcerts } from '../services/storage';
 import { isNativeApp, openConcertPageSnapshot } from '../services/addFromSite';
+import { LinkHistory } from './LinkHistory';
+import { recordRecent } from '../services/linkHistory';
 
 export interface ConcertsDialogProps {
   open: boolean;
@@ -157,6 +159,8 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
       // A URL is fetched server-side; pasted text is wrapped as a .txt file and
       // sent through the multipart upload path (one pipeline for paste + file).
       const pasted = pasteText.trim();
+      if (url.trim()) recordRecent('concerts', url.trim(), 'url');
+      else if (pasted) recordRecent('concerts', pasted, 'text');
       const started = url.trim()
         ? await startRemoteConcertScan(serverUrl, { url: url.trim() })
         : await uploadRemoteConcertScan(
@@ -181,6 +185,7 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
     try {
       const snap = await openConcertPageSnapshot(url.trim());
       if (!snap) return; // the user closed the browser
+      recordRecent('concerts', snap.url || url.trim(), 'url');
       const text = snap.text.trim();
       if (!text) {
         setError('The page had no readable text. Wait for it to finish loading, then try again.');
@@ -406,6 +411,16 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
               onChange={(e) => setPasteText(e.target.value)}
               disabled={scanning}
               rows={3}
+            />
+            <LinkHistory
+              kind="concerts"
+              value={url.trim() || pasteText}
+              target={url.trim() ? 'url' : 'text'}
+              onPick={(picked, pickedTarget) => {
+                if (pickedTarget === 'url') { setUrl(picked); setPasteText(''); }
+                else { setPasteText(picked); setUrl(''); }
+              }}
+              disabled={scanning}
             />
             <input
               ref={fileInputRef}
