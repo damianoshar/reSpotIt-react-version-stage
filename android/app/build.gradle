@@ -42,6 +42,16 @@ android {
             signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
         }
     }
+
+    // Personal builds: if src/personal/res exists (gitignored), overlay a trust
+    // anchor for the owner's local CA so the app reaches the self-hosted HTTPS
+    // server with no user CA install. Public/CI builds omit it and fall back to
+    // the system + user CA stores (users install their own CA).
+    sourceSets {
+        release {
+            res.srcDirs += 'src/personal/res'
+        }
+    }
 }
 
 repositories {

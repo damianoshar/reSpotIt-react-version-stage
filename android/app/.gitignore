@@ -1,2 +1,5 @@
 /build/*
 !/build/.npmkeep
+
+# Personal-only trust anchor (local CA). Keep out of public builds.
+src/personal/

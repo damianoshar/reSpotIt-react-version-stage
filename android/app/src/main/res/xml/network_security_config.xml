@@ -1,15 +1,13 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-  <!-- Dev build: cleartext HTTP allowed (LAN backends) AND the server's
-       self-signed certificate is bundled at res/raw/respotit_server_cert.pem and
-       trusted directly, so the self-hosted HTTPS media server
-       (https://192.168.1.11) is accepted by the app + WebView without needing a
-       user-installed CA on the device. A user-installed CA is still trusted. -->
+  <!-- Dev build: cleartext HTTP allowed (LAN backends). The system and user CA
+       stores are trusted, so a user-installed local CA (mkcert) works. For
+       zero-touch installs, see src/personal/res/ (gitignored): it overlays a
+       trust anchor for the bundled local CA. -->
   <base-config cleartextTrafficPermitted="true">
     <trust-anchors>
       <certificates src="system" />
       <certificates src="user" />
-      <certificates src="@raw/respotit_server_cert" />
     </trust-anchors>
   </base-config>
 </network-security-config>
