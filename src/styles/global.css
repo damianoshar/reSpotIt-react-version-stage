@@ -1744,6 +1744,26 @@ body.board-autohide-bar .filter-bar, body.board-autohide-bar .pl-toolbar { trans
 .add-from-site-meta { opacity: .7; font-size: .85rem; }
 .import-result { color: var(--accent, #1db954); font-size: .9rem; }
 
+/* Recent + saved page links (concerts, album scans, add-from-site). */
+.link-history { display: flex; flex-direction: column; gap: .4rem; }
+.link-history-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.link-history-heading { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; opacity: .6; min-width: 3.4rem; }
+.link-history-empty { font-size: .8rem; opacity: .45; }
+.link-chip { display: inline-flex; align-items: center; max-width: 100%; gap: .25rem;
+  background: var(--surface-3, #222); border: 1px solid var(--border, #2a2a2a);
+  color: var(--text, #eee); border-radius: 999px; padding: .22rem .6rem; font-size: .78rem;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.link-chip:hover:not(:disabled) { border-color: var(--accent, #1db954); }
+.link-chip:disabled { opacity: .55; cursor: not-allowed; }
+.link-chip--saved { padding: 0; background: transparent; border: 1px solid var(--border, #2a2a2a); }
+.link-chip-main { border: 0; background: transparent; color: inherit; font: inherit; padding: .22rem .5rem;
+  cursor: pointer; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-chip-remove { border: 0; background: transparent; color: inherit; opacity: .6; cursor: pointer;
+  padding: .22rem .45rem .22rem .1rem; font-size: .72rem; }
+.link-chip-remove:hover { opacity: 1; color: var(--color-error, #c0392b); }
+.link-save-btn { font-size: .78rem; }
+.link-history-notice { font-size: .75rem; opacity: .65; }
+
 .queue-btn--danger { background: var(--color-error, #c0392b); color: #fff; }
 .queue-btn--danger:hover:not(:disabled) { opacity: 0.88; }
 

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import Papa from 'papaparse';
 import { extractAlbumsFromUrl, extractAlbumsFromText, type ExtractedAlbum } from '../services/LLMService';
 import { resolveAlbums, type ResolvedAlbum } from '../services/remote/spotifyRemote';import type { SyncResult } from '../services/SyncService';
+import { LinkHistory } from './LinkHistory';
+import { recordRecent } from '../services/linkHistory';
 
 export interface AiUrlScanDialogProps {
   open: boolean;
@@ -65,7 +67,10 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
 
   const handleScan = async () => {
     setError(''); setResultMessage(''); setScanning(true);
+    const historyKind = serverUrl ? 'albums-ai' : 'albums-paste';
     try {
+      if (url.trim()) recordRecent(historyKind, url.trim(), 'url');
+      else if (pasteText.trim()) recordRecent(historyKind, pasteText.trim(), 'text');
       if (serverUrl) {
         const extracted = url.trim()
           ? await extractAlbumsFromUrl(serverUrl, url.trim())
@@ -178,6 +183,16 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
             onChange={(e) => setPasteText(e.target.value)}
             disabled={scanning}
             rows={3}
+          />
+          <LinkHistory
+            kind={serverUrl ? 'albums-ai' : 'albums-paste'}
+            value={url.trim() || pasteText}
+            target={url.trim() ? 'url' : 'text'}
+            onPick={(picked, pickedTarget) => {
+              if (pickedTarget === 'url') { setUrl(picked); setPasteText(''); }
+              else { setPasteText(picked); setUrl(''); }
+            }}
+            disabled={scanning}
           />
           <button type="button" className="sync-btn" onClick={() => void handleScan()} disabled={scanning || (!url.trim() && !pasteText.trim())}>
             {scanning ? 'Scanning…' : 'Scan with AI'}
