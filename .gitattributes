@@ -1,0 +1,2 @@
+# Keep PEM trust anchors byte-exact: Android parses res/raw/*.pem at runtime.
+*.pem text eol=lf
