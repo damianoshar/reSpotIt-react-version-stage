@@ -11,6 +11,7 @@ import {
 } from '../services/SpotifyPlaylistService';
 import { SPOTIFY_API_URL } from '../config/spotify';
 import { getValidAccessToken } from '../services/SpotifyAuthService';
+import { queueTrackToSpotifyActive } from '../services/SpotifyPlaybackService';
 import { playWithWebPlaybackSdk, playContextWithWebPlaybackSdk } from '../services/WebPlaybackSdkService';
 import { apiFetch } from '../services/remote/apiClient';
 import { spotifyAlbumUrl } from '../utils/spotifyLinks';
@@ -52,7 +53,11 @@ interface Props {
   onLocalQueueAdd?: () => void;
   onLocalQueueNext?: () => void;
   onLocalQueueReset?: () => void;
-  onLocalQueueTrack?: (uri: string) => void;
+  /**
+   * Add one track to the local queue playlist. `insertNext` puts the track
+   * right after the current one, otherwise it is appended at the end.
+   */
+  onLocalQueueTrack?: (uri: string, insertNext: boolean) => void;
   onRemoveAlbum?: () => void;
   onClose:        () => void;
 }
@@ -101,6 +106,7 @@ export const AlbumTrackSheet: React.FC<Props> = ({
   const [playlistTracks, setPlaylistTracks] = useState<PlaylistPlaybackTrack[]>([]);
   const [playlistOrderLoading, setPlaylistOrderLoading] = useState(false);
   const [playlistOrderError, setPlaylistOrderError] = useState('');
+  const [spotifyBusyUri, setSpotifyBusyUri] = useState('');
 
   const title    = 'title' in album ? (album as any).title : '';
   const artist   = 'artist' in album ? (album as any).artist : '';
@@ -203,6 +209,28 @@ export const AlbumTrackSheet: React.FC<Props> = ({
   const queueBusy = !!busy || localQueueBusy || activeQueueBusy || queuePlaylistBusy;
   const canUseLocalQueue = hasLocalQueue && !queueBusy;
 
+  /**
+   * The "local queue" of the track rows is the queue that plays on this
+   * device. When on-device playback is running it is the player's own queue,
+   * otherwise the app falls back to the local queue playlist.
+   */
+  const deviceQueueReady = localPlaybackAvailable && localPlaybackEnabled;
+  const localQueueReady = deviceQueueReady || !!onLocalQueueTrack;
+  const showPlaylistPosition = !!playlistId && deviceQueueReady;
+
+  /** Legend that explains the two button columns above the track list. */
+  const localQueueLegend = [
+    localQueueReady ? 'Next = play next in the local queue' : null,
+    localQueueReady ? '+ = add to the end of the local queue' : null,
+    showPlaylistPosition ? 'Pos = play from the playlist position' : null,
+  ].filter(Boolean).join(' · ');
+
+  const spotifyQueueLegend = [
+    'Play = play on Spotify',
+    'Next = queue on Spotify',
+    playlistId ? 'Remove = remove from the playlist' : null,
+  ].filter(Boolean).join(' · ');
+
   const handleLocalQueueCreate = () => {
     if (!onLocalQueueCreate) return;
     setStatus('');
@@ -230,13 +258,13 @@ export const AlbumTrackSheet: React.FC<Props> = ({
     onLocalQueueReset();
   };
 
-  const handleLocalQueueTrack = (t: Track) => {
+  const handleLocalQueueTrack = (t: Track, insertNext: boolean) => {
     if (!onLocalQueueTrack) return;
     if (!hasLocalQueue) { setStatus('Create a local queue playlist first.'); return; }
     const uri = t.uri || (t.id ? 'spotify:track:' + t.id : '');
     if (!uri) return;
     setStatus('');
-    onLocalQueueTrack(uri);
+    onLocalQueueTrack(uri, insertNext);
   };
 
   const toLocalTracks = (): LocalPlaybackTrack[] => tracks
@@ -277,6 +305,15 @@ export const AlbumTrackSheet: React.FC<Props> = ({
     setStatus(next ? 'Queued next: “' + t.title + '”' : 'Added to queue: “' + t.title + '”');
   };
 
+  /**
+   * The row's local-queue buttons: they target the on-device queue when
+   * on-device playback is running, otherwise the local queue playlist.
+   */
+  const handleRowLocalQueue = (t: Track, next: boolean) => {
+    if (deviceQueueReady) { handleQueueTrackLocally(t, next); return; }
+    handleLocalQueueTrack(t, next);
+  };
+
   const handleQueueAlbumNextLocally = () => {
     const localTracks = toLocalTracks();
     if (!localTracks.length) { setStatus('No playable tracks found.'); return; }
@@ -284,32 +321,25 @@ export const AlbumTrackSheet: React.FC<Props> = ({
     setStatus('Queued album after the current track…');
   };
 
-  const handlePlayTrackLocally = (t: Track) => {
-    const localTracks = toLocalTracks();
+  /**
+   * Play this track on the device, starting at its position in the playlist.
+   * Only offered when the sheet was opened from a playlist.
+   */
+  const handlePlayFromPlaylistPosition = (t: Track) => {
     const uri = t.uri || (t.id ? 'spotify:track:' + t.id : '');
-    if (playlistId && playlistOrderLoading) {
+    if (!uri) { setStatus('No playable track URI.'); return; }
+    if (playlistOrderLoading) {
       setStatus('Reading playlist order…');
       return;
     }
-    if (playlistId && playlistTracks.length) {
-      const playlistIndex = findPlaylistIndexForTrack(playlistTracks, uri);
-      if (playlistIndex >= 0) {
-        onPlayLocally?.(toLocalPlaylistTracks(playlistTracks), playlistIndex);
-        const position = playlistTracks[playlistIndex].playlistPosition + 1;
-        setStatus('Starting “' + t.title + '” at playlist position ' + position + '…');
-        return;
-      }
-      if (playlistAlbumIndex >= 0) {
-        onPlayLocally?.(toLocalPlaylistTracks(playlistTracks), playlistAlbumIndex);
-        const position = playlistTracks[playlistAlbumIndex].playlistPosition + 1;
-        setStatus('Track is not in the playlist; starting at the album’s position ' + position + '…');
-        return;
-      }
+    const playlistIndex = findPlaylistIndexForTrack(playlistTracks, uri);
+    if (playlistIndex >= 0) {
+      onPlayLocally?.(toLocalPlaylistTracks(playlistTracks), playlistIndex);
+      const position = playlistTracks[playlistIndex].playlistPosition + 1;
+      setStatus('Starting “' + t.title + '” at playlist position ' + position + '…');
+      return;
     }
-    const index = localTracks.findIndex((item) => item.uri === uri);
-    if (index < 0) { setStatus('No playable track found.'); return; }
-    onPlayLocally?.(localTracks, index);
-    setStatus('Starting “' + t.title + '”…');
+    setStatus('“' + t.title + '” is not in this playlist.');
   };
 
   const getWebPlaybackToken = async (): Promise<string> => {
@@ -345,6 +375,26 @@ export const AlbumTrackSheet: React.FC<Props> = ({
       setStatus(e?.message ?? 'Playback failed.');
     } finally {
       setWebPlaying(false);
+    }
+  };
+
+  /** Add the track to Spotify's own up-next queue (the active device). */
+  const handleQueueTrackSpotify = async (t: Track) => {
+    const uri = t.uri || (t.id ? 'spotify:track:' + t.id : '');
+    if (!uri) { setStatus('No playable track URI.'); return; }
+    setSpotifyBusyUri(uri);
+    setStatus('');
+    try {
+      const token = await getValidAccessToken();
+      if (!token) { setStatus('Connect Spotify on this device first.'); return; }
+      const queued = await queueTrackToSpotifyActive(uri);
+      setStatus(queued
+        ? 'Queued on Spotify: “' + t.title + '”'
+        : 'Spotify did not accept “' + t.title + '”.');
+    } catch (e: any) {
+      setStatus(e?.message ?? 'Could not queue on Spotify.');
+    } finally {
+      setSpotifyBusyUri('');
     }
   };
 
@@ -597,98 +647,121 @@ export const AlbumTrackSheet: React.FC<Props> = ({
             <div className="empty-state"><p>No tracks found.</p></div>
           )}
           {!loading && !error && tracks.length > 0 && (
-            <ol className="track-list">
-              {tracks.map((t, i) => (
-                <li key={t.id || i} className="track-row">
-                  <span className="track-number">{t.disc > 1 ? t.disc + '.' : ''}{t.number || i + 1}</span>
-                  <span className="track-info">
-                    <span className="track-title">{t.title}</span>
-                    {t.artists && <span className="track-artist">{t.artists}</span>}
-                  </span>
-                  <span className="track-duration">{msToTime(t.durationMs)}</span>
-                  {playlistId && localPlaybackAvailable && localPlaybackEnabled
-                    && playlistPositions.get(t.uri) != null && (
-                    <span className="track-playlist-pos" title="Position in this playlist">
-                      #{playlistPositions.get(t.uri)! + 1}
+            <>
+              <div className="track-columns-legend">
+                <div className="track-legend-col">
+                  <span className="track-legend-title">Local queue</span>
+                  <span className="track-legend-text">{localQueueLegend}</span>
+                </div>
+                <div className="track-legend-col">
+                  <span className="track-legend-title">Spotify</span>
+                  <span className="track-legend-text">{spotifyQueueLegend}</span>
+                </div>
+              </div>
+              <ol className="track-list">
+                {tracks.map((t, i) => (
+                  <li key={t.id || i} className="track-row">
+                    <span className="track-number">{t.disc > 1 ? t.disc + '.' : ''}{t.number || i + 1}</span>
+                    <span className="track-info">
+                      <span className="track-title">{t.title}</span>
+                      {t.artists && <span className="track-artist">{t.artists}</span>}
                     </span>
-                  )}
-                  {localPlaybackAvailable && localPlaybackEnabled && t.uri && (
-                    <>
-                      <button
-                        type="button"
-                        className="track-row-btn track-row-queue"
-                        onClick={() => handleQueueTrackLocally(t, true)}
-                        disabled={!!playlistId && playlistOrderLoading}
-                        title="Queue next locally"
-                        aria-label={'Queue ' + t.title + ' next on this device'}
-                      >
-                        Next
-                      </button>
-                      <button
-                        type="button"
-                        className="track-row-btn track-row-queue"
-                        onClick={() => handleQueueTrackLocally(t, false)}
-                        disabled={!!playlistId && playlistOrderLoading}
-                        title="Add to end locally"
-                        aria-label={'Add ' + t.title + ' to the end on this device'}
-                      >
-                        +
-                      </button>
-                    </>
-                  )}
-                  {(t.uri || t.id) && (
-                    <button
-                      type="button"
-                      className="track-row-btn track-row-play"
-                      onClick={() => void handlePlayTrackWeb(t, i)}
-                      disabled={webPlaying}
-                      aria-label={'Play ' + t.title + ' with Web Playback SDK'}
-                    >
-                      Play
-                    </button>
-                  )}
-                  {localPlaybackAvailable && localPlaybackEnabled && (
-                    <button
-                      type="button"
-                      className="track-row-btn track-row-play"
-                      onClick={() => handlePlayTrackLocally(t)}
-                      disabled={!!playlistId && playlistOrderLoading}
-                      title={playlistPositions.has(t.uri)
-                        ? 'Play from this track’s position in the playlist'
-                        : 'Play this track on this device'}
-                      aria-label={'Play ' + t.title + ' on this device'}
-                    >
-                      Play
-                    </button>
-                  )}
-                  {onLocalQueueTrack && (
-                    <button
-                      type="button"
-                      className="track-row-btn"
-                      onClick={() => handleLocalQueueTrack(t)}
-                      disabled={!canUseLocalQueue || !(t.uri || t.id)}
-                      title={hasLocalQueue
-                        ? 'Queue this track next in the local queue playlist'
-                        : 'Create a local queue playlist first'}
-                      aria-label={'Queue ' + t.title + ' next'}
-                    >
-                      Next
-                    </button>
-                  )}
-                  {playlistId && (
-                    <button
-                      type="button"
-                      className="track-row-btn track-row-danger"
-                      onClick={() => handleRemoveTrack(t)}
-                      disabled={busy === 'remove:' + t.uri}
-                      aria-label={'Remove ' + t.title}
-                    >
-                      {busy === 'remove:' + t.uri ? '\u2026' : 'Remove'}
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ol>
+                    <span className="track-duration">{msToTime(t.durationMs)}</span>
+                    {showPlaylistPosition && playlistPositions.get(t.uri) != null && (
+                      <span className="track-playlist-pos" title="Position in this playlist">
+                        #{playlistPositions.get(t.uri)! + 1}
+                      </span>
+                    )}
+                    <div className="track-row-actions">
+                      <div className="track-action-group track-action-group-local" role="group" aria-label="Local queue">
+                        {localQueueReady && (
+                          <>
+                            <button
+                              type="button"
+                              className="track-row-btn track-row-queue"
+                              onClick={() => handleRowLocalQueue(t, true)}
+                              disabled={deviceQueueReady
+                                ? (!!playlistId && playlistOrderLoading)
+                                : (!canUseLocalQueue || !(t.uri || t.id))}
+                              title={deviceQueueReady
+                                ? 'Play this track next on this device'
+                                : 'Queue this track next in the local queue playlist'}
+                              aria-label={'Queue ' + t.title + ' next in the local queue'}
+                            >
+                              Next
+                            </button>
+                            <button
+                              type="button"
+                              className="track-row-btn track-row-queue"
+                              onClick={() => handleRowLocalQueue(t, false)}
+                              disabled={deviceQueueReady
+                                ? (!!playlistId && playlistOrderLoading)
+                                : (!canUseLocalQueue || !(t.uri || t.id))}
+                              title={deviceQueueReady
+                                ? 'Add this track to the end of the queue on this device'
+                                : 'Add this track to the end of the local queue playlist'}
+                              aria-label={'Add ' + t.title + ' to the end of the local queue'}
+                            >
+                              +
+                            </button>
+                          </>
+                        )}
+                        {showPlaylistPosition && playlistPositions.has(t.uri) && (
+                          <button
+                            type="button"
+                            className="track-row-btn track-row-play"
+                            onClick={() => handlePlayFromPlaylistPosition(t)}
+                            disabled={playlistOrderLoading}
+                            title="Play from this track’s position in the playlist"
+                            aria-label={'Play ' + t.title + ' from its playlist position'}
+                          >
+                            Pos
+                          </button>
+                        )}
+                      </div>
+                      <div className="track-action-group track-action-group-spotify" role="group" aria-label="Spotify">
+                        {(t.uri || t.id) && (
+                          <>
+                            <button
+                              type="button"
+                              className="track-row-btn track-row-play"
+                              onClick={() => void handlePlayTrackWeb(t, i)}
+                              disabled={webPlaying}
+                              title="Play this track on Spotify"
+                              aria-label={'Play ' + t.title + ' on Spotify'}
+                            >
+                              Play
+                            </button>
+                            <button
+                              type="button"
+                              className="track-row-btn track-row-queue"
+                              onClick={() => void handleQueueTrackSpotify(t)}
+                              disabled={spotifyBusyUri === t.uri}
+                              title="Add this track to the Spotify up-next queue"
+                              aria-label={'Queue ' + t.title + ' on Spotify'}
+                            >
+                              Next
+                            </button>
+                          </>
+                        )}
+                        {playlistId && (
+                          <button
+                            type="button"
+                            className="track-row-btn track-row-danger"
+                            onClick={() => handleRemoveTrack(t)}
+                            disabled={busy === 'remove:' + t.uri}
+                            title="Remove this track from the playlist"
+                            aria-label={'Remove ' + t.title + ' from the playlist'}
+                          >
+                            {busy === 'remove:' + t.uri ? '\u2026' : 'Remove'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </>
           )}
         </div>
       </div>

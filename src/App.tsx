@@ -1148,7 +1148,10 @@ export default function App() {
           onLocalQueueAdd={() => void player.addToLocalQueue([trackAlbum.id], false)}
           onLocalQueueNext={() => void player.addToLocalQueue([trackAlbum.id], true)}
           onLocalQueueReset={requestLocalReset}
-          onLocalQueueTrack={(uri) => void player.addTrackUrisToLocalQueue([uri], true)}
+          onLocalQueueTrack={(uri, insertNext) => void player.addTrackUrisToLocalQueue([uri], insertNext)}
+          onPlayLocally={(tracks, startIndex) => void localPlayer.playAlbum(tracks, startIndex)}
+          onQueueNextLocally={(track) => void localPlayer.enqueueTrack(track, true)}
+          onQueueEndLocally={(track) => void localPlayer.enqueueTrack(track, false)}
           onClose={() => { setTrackAlbum(null); setTrackAlbumPlaylistId(null); }}
         />
       )}

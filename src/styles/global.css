@@ -1595,6 +1595,9 @@ input, select { font: inherit; color: inherit; }
   .local-art--empty { width: 100%; height: auto; aspect-ratio: 1; max-height: 200px; }
   .track-row { gap: 0.4rem; }
   .track-row-btn { padding: 0.3rem 0.5rem; min-width: 0; }
+  .track-row-actions { gap: 0.2rem; }
+  .track-action-group { gap: 0.2rem; }
+  .track-legend-col { flex: 1 1 100%; }
 }
 /* -- Playlist picker list / compact (Kotlin parity) -- */
 .pl-toolbar            { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
@@ -1675,6 +1678,14 @@ body.board-autohide-bar .filter-bar, body.board-autohide-bar .pl-toolbar { trans
 .track-row-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .track-row-danger { border-color: rgba(233,20,41,0.35); color: #ff6b6b; }
 .track-row-danger:hover { background: rgba(233,20,41,0.12); }
+/* Legend that explains the two button columns of every track row. */
+.track-columns-legend { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.track-legend-col { flex: 1 1 11rem; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; padding: 0.4rem 0.6rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.track-legend-title { font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+.track-legend-text { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.45; }
+/* The two action groups of a track row (local queue on top, Spotify below). */
+.track-row-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; flex: none; }
+.track-action-group { display: flex; align-items: center; gap: 0.3rem; }
 .pl-select-check { position: absolute; top: var(--space-2); left: var(--space-2); z-index: 4; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #0000009e; color: #fff; border: 1.5px solid #fff; cursor: pointer; font-size: 0.75rem; }
 .pl-select-check.checked { background: #1DB954; color: #000; border-color: #1DB954; }
 .pl-card-wrap { position: relative; }
