@@ -45,11 +45,20 @@ immediately.
 ![Album track sheet](screenshots/03-album-tracks.png)
 
 Sheet for one album with **Play album**, **Add to playlist** and **Open on
-Spotify**.
+Spotify**. When the sheet is opened from a playlist, it also shows
+**Remove from playlist** at the top and **Remove** per track.
 
 * **Local queue**: queue playlist, add album to end, queue next, reset queue.
-* Track list with title, artist and play time; each track can be queued
-  (**Play** / **Next**).
+* Track list with title, artist, play time, and playlist position (when opened
+  from a playlist). Each track shows a two-column action line:
+  - **Local queue column** (on-device queue or local queue playlist): **Next** (queue
+    next), **+** (add to end); in playlist context also **Pos** (play from
+    playlist position, on-device only).
+  - **Spotify column**: **Play** (play on Spotify), **Next** (queue on Spotify);
+    in playlist context also **Remove** (remove from playlist).
+* The redundant per-track local **Play** button is removed in the album context
+  (the playlist **Pos** button covers that intent for on-device playback).
+* Above the track list a two-card legend explains both columns.
 
 ## 4. Playlists
 
