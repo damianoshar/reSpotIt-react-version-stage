@@ -1054,14 +1054,14 @@ export default function App() {
                 }}
               />
             )}
-            {concertsListOpen && (
-              <ConcertsListDialog
-                open={concertsListOpen}
-                onClose={() => setConcertsListOpen(false)}
-                serverUrl={ds.settings.serverUrl}
-                isRemote={isRemote}
-              />
-            )}
+            {/* Always mounted: the calendar view (month + selected day) has to
+                survive closing and reopening the sheet. */}
+            <ConcertsListDialog
+              open={concertsListOpen}
+              onClose={() => setConcertsListOpen(false)}
+              serverUrl={ds.settings.serverUrl}
+              isRemote={isRemote}
+            />
             {discographyOpen && (
               <ArtistDiscographyDialog
                 open={discographyOpen}
