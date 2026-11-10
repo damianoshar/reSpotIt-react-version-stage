@@ -1,0 +1,210 @@
+# reSpotIt (React / TypeScript) — screen guide
+
+Screenshots of every screen of the Capacitor Android client, captured from a
+real device with the release build.
+
+| | |
+|---|---|
+| Device | Xiaomi 2201117PG, Android 13, 1080 × 2400, 440 dpi |
+| Build | `release` APK (`app-release.apk`), **local mode** — signed in with a Spotify account on the device |
+| Captured | 2026-11-10 |
+| App id | `com.spotifydashboard.app.ts` |
+| Branch | `feat/librespot-player` |
+
+All images live in [`screenshots/`](screenshots/).
+
+> This is the **librespot** variant of the app (branch `feat/librespot-player`).
+> Every screen is identical to the main React client — only the **Player** tab
+> differs: it adds the on-device librespot player on top of the Web Playback
+> SDK. See `reSpotIt-react-version` for the main client.
+
+---
+
+## 1. Library
+
+![Library](screenshots/01-library.png)
+
+The default tab: your saved albums as a grid, with the server counters on top.
+
+* Album / artist / genre / year counters and the year range.
+* Search field, **Filters** button and the sort keys (artist, title, year,
+  genre, date added, popularity).
+* Grid / list / compact-grid switch and a grid-size slider.
+* `6,259 albums` counter, **View all** toggle and **Select all visible**.
+* Each card can be played on the device, queued, opened on Spotify, or opened in
+  the track sheet.
+
+## 2. Filters
+
+![Filters](screenshots/02-library-filters.png)
+
+The filter panel: **artist**, **genre**, **release year** (from/to plus decade
+shortcuts), **album type** and **popularity** (min/max). Results update
+immediately.
+
+## 3. Album track sheet
+
+![Album track sheet](screenshots/03-album-tracks.png)
+
+Sheet for one album with **Play album**, **Add to playlist** and **Open on
+Spotify**.
+
+* **Local queue**: queue playlist, add album to end, queue next, reset queue.
+* Track list with title, artist and play time; each track can be queued
+  (**Play** / **Next**).
+
+## 4. Playlists
+
+![Playlists](screenshots/04-playlists.png)
+
+Your Spotify playlists as cards, with the search field, the **Name / Tracks /
+Date Added** sort, the grid / list / compact switch and the **Date Added**
+sort direction. Opening a playlist shows its albums with per-playlist filters,
+CSV export and the retention (expiry) picker.
+
+## 5. Tools
+
+![Tools](screenshots/05-tools.png)
+
+Everything that acts on your library:
+
+| Button | What it does |
+|---|---|
+| **Open AI assistant** | Chat with the local model through your server (screen 16) |
+| **Scan concerts (AI)** | AI concert scan of any page (screen 8) |
+| **View concerts calendar** | Month calendar of saved concerts (screen 6) |
+| **Library stats** | Album / artist / genre counters, top genres, top artists, albums by year |
+| **Scan duplicate albums** | Duplicate review (screen 11) |
+| **Follow artists from saved Spotify albums** | Follow every artist in your library |
+| **Add albums from a website** | In-app browser that scrapes Spotify links (screen 13) |
+| **Scan page with AI (albums)** | AI album scan of any page (screen 12) |
+| **Artist discography & playlist** | Add an artist's releases to the library or a playlist |
+
+## 6. Concerts calendar
+
+![Concerts calendar](screenshots/06-concerts-calendar.png)
+
+The saved concerts as a real calendar.
+
+* Month grid (Monday-first) with ‹ / › navigation and a **Today** button.
+* A day with concerts gets a green border and a dot; today is outlined.
+* Below it, the concerts as **cards**: artist on the first line, date and venue
+  on the second, a ★ badge for followed artists and a delete button.
+* Sections: **Upcoming**, **Without a date** and **Past**.
+* The month and the selected day survive closing and reopening the sheet.
+
+## 7. A day selected
+
+![Concert day selected](screenshots/07-concerts-day.png)
+
+Tapping a day filters the list to that date ("Concerts on 2027-03-21") and
+offers **Show all upcoming**.
+
+## 8. Concert scan
+
+![Concert scan](screenshots/08-scan-concerts.png)
+
+**Scan concerts (AI)**.
+
+* Paste a concerts URL or text, attach a file, or pick a recent/saved link.
+* **Open in browser and scan** loads the page in the in-app browser and
+  snapshots the rendered DOM — the only way to read JS-built listings.
+* The scan runs on the server in the background; the card at the bottom shows
+  the progress and offers **Refresh** / **Dismiss scan**.
+* Results arrive as cards you tick and save; the Followed/All switch filters by
+  artists you follow on Spotify.
+
+## 9. Library stats
+
+![Library stats](screenshots/09-stats.png)
+
+Totals (albums, artists, genres, years), the top genres with bars and the top
+artists.
+
+## 10. Stats breakdown
+
+![Stats breakdown](screenshots/10-stats-breakdown.png)
+
+The same panel scrolled to the full **albums by year** histogram.
+
+## 11. Duplicate albums
+
+![Duplicate albums](screenshots/11-duplicates.png)
+
+Duplicate review. Groups are matched by title and primary artist, ignoring
+deluxe, remaster and regional tags. Uncheck the copy you want to keep — the
+removal is stored on your media server and is reversible; Spotify is never
+touched. The panel also explains the remote-mode behaviour (hidden duplicates
+are stored on the server and can be restored at any time).
+
+## 12. AI album scan
+
+![AI album scan](screenshots/12-ai-album-scan.png)
+
+**Scan page with AI (albums)**.
+
+* Paste a URL (or page text) of any chart or list — no Spotify links needed.
+* **Open in browser and scan** loads the page in the app's own browser, then
+  snapshots the rendered text and returns here with the URL preserved.
+* The server chunks long pages, extracts `artist + album` pairs with the local
+  LLM and resolves them against Spotify; the results can be saved to the
+  library or turned into a playlist.
+
+## 13. Add from site
+
+![Add from site](screenshots/13-add-from-site-browser.png)
+
+The in-app browser: URL bar with **GO**, **SCAN ALBUMS** and **CLOSE**, plus the
+page-snapshot buttons (**Scan this page for concerts (AI)** / **Scan this page
+for albums (AI)**). The scan evaluates `document.body.innerText` on the
+*rendered* page, so pages that build their list with JavaScript work as well.
+
+## 14. Settings
+
+![Settings](screenshots/14-settings.png)
+
+* **Backup** — export the whole library to CSV, auto-backup after every sync and
+  the sub-folder to use.
+* Grid size, sync photos, autohide the bottom navigation / the search & sort
+  bar.
+* CSV import and export, hidden (duplicate) albums, playlist retention.
+* Media server (URL, sign-in, push/pull) and sign-out.
+
+## 15. Player (librespot)
+
+![Player](screenshots/15-player.png)
+
+The only screen that differs from the main React client. Two players sit side
+by side:
+
+* **On this device** — the built-in **librespot** player (Rust/JNI). Switch it
+  **On** to play full tracks on the phone itself, without Spotify Connect:
+  * the first play opens Spotify's consent page — a **Premium** account is
+    required, and this login is independent from the dashboard login;
+  * **Keep connected** keeps the session alive in the background;
+  * transport controls (play / stop / next), the position and the current
+    track with its cover;
+  * *Forget playback account* clears the stored Spotify credentials,
+    *Audio settings* opens the librespot audio configuration.
+* **Web Playback SDK** — the official browser-based player: play/pause, volume,
+  device picker and the playback-quality and keep-screen-on options.
+* **Now playing** with a refresh; the active device is shown.
+* **Queue playlist** with the local queue and Spotify merge modes, plus
+  *Reset Queue Playlist* and *Clear local queue*.
+
+## 16. AI assistant
+
+![AI assistant](screenshots/16-ai-assistant.png)
+
+Chat with the local model through your media server. The assistant answers
+questions about your library, suggests playlists and points out gaps. Requests
+go through your server — nothing is sent to the app vendor. The chat history is
+kept per user on the server.
+
+---
+
+## Related documents
+
+* [`../README.md`](../README.md) — setup, build, architecture, CI, troubleshooting.
+* `EXPERIMENTAL_FEATURES.md` in the server repo — the feature status of every
+  AI-driven screen.

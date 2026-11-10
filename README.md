@@ -263,6 +263,8 @@ native/audio-librespot/           ← Rust/JNI module (Gradle project :audio-lib
 ├── src/main/java/com/spotifydashboard/librespot/
 ├── src/main/jniLibs/<abi>/libspotify_librespot.so   ← git-ignored build output
 └── build.gradle
+docs/                            ← landing-page assets + SCREENS.md (screen guide with screenshots)
+docs/screenshots/                ← device screenshots used by the screen guide
 ```
 
 ---
@@ -337,6 +339,18 @@ CI (`.github/workflows/release.yml`): JDK 17 + Node 20 → `npm ci` → `npm run
 | App killed in the background while logging in | Low-RAM device reclaimed the process | The PKCE state is persisted before the browser opens, so re-opening completes the flow |
 | Album page scan finds nothing | The page renders its list lazily | Scroll the page before snapshotting, or use **Scan** to extract the links already present |
 | Cannot install over the other React variant | Same application id (`com.spotifydashboard.app.ts`) | Uninstall the standard variant first |
+
+---
+
+## 📸 Screens
+
+Every screen of the app, captured from a real device with the release build:
+**[docs/SCREENS.md](docs/SCREENS.md)** — library, filters, album track sheet,
+playlists, tools, the concert calendar, the AI scans, the in-app browser, the
+AI assistant, settings and the player.
+
+The screens are the same as in the main React client; only the **Player** tab
+differs — it adds the on-device librespot player.
 
 ---
 
