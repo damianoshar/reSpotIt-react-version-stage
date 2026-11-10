@@ -1062,12 +1062,12 @@ export default function App() {
                 }}
               />
             )}
-            {concertsListOpen && (
-              <ConcertsListDialog
-                open={concertsListOpen}
-                onClose={() => setConcertsListOpen(false)}
-              />
-            )}
+            {/* Always mounted: the calendar view (month + selected day) has to
+                survive closing and reopening the sheet. */}
+            <ConcertsListDialog
+              open={concertsListOpen}
+              onClose={() => setConcertsListOpen(false)}
+            />
             {discographyOpen && (
               <ArtistDiscographyDialog
                 open={discographyOpen}
