@@ -526,18 +526,19 @@ export const ConcertsDialog: React.FC<ConcertsDialogProps> = ({
                 </button>
               </p>
             )}
-            <ul className="add-from-site-list">
+            <ul className="list-card-list">
               {visibleRows.map(({ r, i }) => (
-                <li key={i} className="add-from-site-item">
-                  <label>
+                <li key={i} className="list-card">
+                  <label className="list-card__check">
                     <input type="checkbox" checked={r.selected} onChange={() => toggle(i)} />
-                    <span className="album-meta">
-                      <strong>{r.artist}</strong>
-                      <span className="muted">
-                        {r.date || 'date unknown'}{r.venue ? ` · ${r.venue}` : ''}{r.followed ? ' · ★ followed' : ''}
-                      </span>
-                    </span>
                   </label>
+                  <span className="list-card__main">
+                    <span className="list-card__artist">{r.artist}</span>
+                    <span className="list-card__meta">
+                      {[r.date || 'date unknown', r.venue].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  {r.followed && <span className="list-card__badge">★ followed</span>}
                 </li>
               ))}
             </ul>
