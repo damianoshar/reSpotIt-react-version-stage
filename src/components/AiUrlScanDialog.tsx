@@ -15,6 +15,7 @@ import {
   type LLMChatResult,
 } from '../services/LLMService';
 import { resolveAlbums, type ResolvedAlbum } from '../services/remote/spotifyRemote';import type { SyncResult } from '../services/SyncService';
+import { isNativeApp, openAlbumPageSnapshot } from '../services/addFromSite';
 import { LinkHistory } from './LinkHistory';
 import { recordRecent } from '../services/linkHistory';
 
@@ -137,6 +138,43 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
       }
     } catch (e: any) {
       setError(e?.message ?? 'Scan failed.');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  // Capture the rendered album listing from the in-app browser, then run the
+  // normal AI extraction on that text. A server-side fetch cannot execute the
+  // page's JavaScript, so JS-built listings (Spotify, labels, shops) would
+  // otherwise come back empty.
+  const handleBrowserSnapshot = async () => {
+    if (!serverUrl) {
+      setError('The in-app browser scan needs the media server connection.');
+      return;
+    }
+    setError(''); setResultMessage(''); setScanning(true); setAlbums([]); setUnresolved([]);
+    try {
+      const snap = await openAlbumPageSnapshot(url.trim());
+      if (!snap) return; // the user closed the browser
+      recordRecent(serverUrl ? 'albums-ai' : 'albums-paste', snap.url || url.trim(), 'url');
+      const text = snap.text.trim();
+      if (!text) {
+        setError('The page had no readable text. Wait for it to finish loading, then try again.');
+        return;
+      }
+      const extracted = await extractAlbumsFromText(serverUrl, text);
+      if (!extracted.length) {
+        setError('AI found no albums on this page.');
+        return;
+      }
+      const { resolved, unresolved } = await resolveAlbums(serverUrl, extracted);
+      setAlbums(resolved);
+      setUnresolved(unresolved);
+      setSelected(new Set(resolved.map((a) => a.spotify_id)));
+      setResultMessage(`Captured the page. Found ${extracted.length} album(s), ${resolved.length} on Spotify.`);
+      setUrl('');
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not snapshot the page.');
     } finally {
       setScanning(false);
     }
@@ -362,6 +400,17 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
             }}
             disabled={scanning}
           />
+          {isNativeApp() && (
+            <button
+              type="button"
+              className="sync-btn"
+              onClick={() => void handleBrowserSnapshot()}
+              disabled={scanning || !url.trim()}
+              title="Open the page in the app's browser, then capture the rendered text (works on JS-built album listings)"
+            >
+              Open in browser and scan
+            </button>
+          )}
           <button type="button" className="sync-btn" onClick={() => void handleScan()} disabled={scanning || (!url.trim() && !pasteText.trim())}>
             {scanning ? 'Scanning…' : 'Scan with AI'}
           </button>
