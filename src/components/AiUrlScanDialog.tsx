@@ -258,17 +258,19 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
               <button type="button" className="sync-btn sync-btn--ghost" onClick={() => setSelected(new Set())}>Clear</button>
               <span className="muted">{selected.size} selected</span>
             </div>
-            <ul className="add-from-site-list">
+            <ul className="list-card-list">
               {albums.map((a) => (
-                <li key={a.spotify_id} className="add-from-site-item">
-                  <label>
+                <li key={a.spotify_id} className="list-card">
+                  <label className="list-card__check">
                     <input type="checkbox" checked={selected.has(a.spotify_id)} onChange={() => toggle(a.spotify_id)} />
                     {a.image_url && <img src={a.image_url} alt="" className="album-thumb" />}
-                    <span className="album-meta">
-                      <strong>{a.title}</strong>
-                      <span className="muted">{a.artist_name} {a.year ? `(${a.year})` : ''}</span>
-                    </span>
                   </label>
+                  <span className="list-card__main">
+                    <span className="list-card__title">{a.title}</span>
+                    <span className="list-card__meta">
+                      {[a.artist_name, a.year ? `(${a.year})` : ''].filter(Boolean).join(' ')}
+                    </span>
+                  </span>
                 </li>
               ))}
             </ul>

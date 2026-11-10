@@ -2097,3 +2097,141 @@ body.board-autohide-bar .filter-bar, body.board-autohide-bar .pl-toolbar { trans
   .discography-review-artist { display: none; }
   .discography-footer-actions .sync-btn { flex: 1; justify-content: center; }
 }
+
+/* ---------------------------------------------------------------------------
+   Result cards (concert calendar, AI scan lists)
+
+   The title and the follow-up line are separate blocks, never inline
+   siblings: inline elements with no whitespace between them render as
+   "Artist2026-05-01" with the words glued together.
+   --------------------------------------------------------------------------- */
+.list-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  list-style: none;
+  margin: 0 0 .75rem;
+  padding: 0;
+  max-height: 40vh;
+  overflow: auto;
+}
+.list-card-list__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .5rem;
+  margin: .5rem 0 .35rem;
+}
+.list-card {
+  display: flex;
+  gap: .6rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: .55rem .65rem;
+  border: 1px solid var(--border, rgba(255,255,255,.08));
+  border-radius: 12px;
+  background: var(--surface-2, #181818);
+}
+.list-card__check {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-width: 0;
+}
+.list-card__main {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  min-width: 0;
+  flex: 1;
+}
+.list-card__title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.list-card__meta {
+  color: var(--text-muted, #b3b3b3);
+  font-size: .85rem;
+  overflow-wrap: anywhere;
+}
+.list-card__badge {
+  flex: none;
+  align-self: center;
+  padding: .1rem .45rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent, #1db954);
+  color: var(--accent, #1db954);
+  font-size: .72rem;
+  white-space: nowrap;
+}
+.list-card__actions {
+  display: flex;
+  gap: .4rem;
+  align-items: center;
+  flex: none;
+}
+.list-card__link { white-space: nowrap; }
+
+/* Concert calendar -------------------------------------------------------- */
+.concert-calendar {
+  margin: .35rem 0 .75rem;
+  padding: .6rem;
+  border: 1px solid var(--border, rgba(255,255,255,.08));
+  border-radius: 12px;
+  background: var(--surface-2, #181818);
+}
+.concert-calendar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-bottom: .5rem;
+}
+.concert-calendar__title { font-weight: 600; }
+.concert-calendar__nav { display: flex; gap: .35rem; align-items: center; }
+.concert-calendar__weekdays,
+.concert-calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: .25rem;
+}
+.concert-calendar__weekdays { margin-bottom: .25rem; }
+.concert-calendar__weekday {
+  text-align: center;
+  color: var(--text-faint, #535353);
+  font-size: .72rem;
+}
+.concert-calendar__day {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border, rgba(255,255,255,.08));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text, #fff);
+  font: inherit;
+  font-size: .85rem;
+  cursor: pointer;
+}
+.concert-calendar__day--outside { opacity: .35; }
+.concert-calendar__day--has { border-color: var(--accent, #1db954); font-weight: 700; }
+.concert-calendar__day--today { box-shadow: inset 0 0 0 1px var(--accent, #1db954); }
+.concert-calendar__day--selected {
+  background: var(--accent, #1db954);
+  color: #000;
+  border-color: var(--accent, #1db954);
+}
+.concert-calendar__daynum { line-height: 1; }
+.concert-calendar__dot {
+  position: absolute;
+  bottom: .2rem;
+  width: .3rem;
+  height: .3rem;
+  border-radius: 50%;
+  background: var(--accent, #1db954);
+}
+.concert-calendar__day--selected .concert-calendar__dot { background: #000; }
