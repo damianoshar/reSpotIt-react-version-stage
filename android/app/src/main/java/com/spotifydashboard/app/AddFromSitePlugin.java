@@ -55,12 +55,13 @@ public class AddFromSitePlugin extends Plugin {
   }
 
   /**
-   * Entry point for share-sheet launches: opens the Add from site dialog
-   * pre-filled with the shared URL and auto-scans it.
+   * Entry point for share-sheet / deep-link launches: opens the Add from site
+   * dialog pre-filled with the shared URL and auto-scans it. Does not require
+   * a pending PluginCall.
    */
   public void openFromShare(String url) {
     if (url == null || url.trim().isEmpty()) return;
-    if (pendingCall != null) return;
+    if (pendingCall != null) return; // already open
     resolved = false;
     detected.clear();
     final String initial = url.trim();
@@ -114,11 +115,11 @@ public class AddFromSitePlugin extends Plugin {
   }
 
   /**
-   * Concert mode: capture the *rendered* page text. A server-side fetch cannot
-   * run the page's JavaScript, so JS-built listings look empty there; this is
-   * the text the user actually sees.
+   * Snapshot mode (concerts/page): capture the *rendered* page text. A
+   * server-side fetch cannot run the page's JavaScript, so JS-built listings
+   * look empty there; this is the text the user actually sees.
    */
-  private void snapshotForConcerts() {
+  private void snapshotPage() {
     if (webView == null) return;
     setStatus("Reading the page…");
     final String js = "(function(){ try { return document.body ? document.body.innerText : ''; }"
@@ -127,7 +128,7 @@ public class AddFromSitePlugin extends Plugin {
       final String text = parseJsString(value);
       if (text.trim().length() < 120) {
         setStatus("This page has almost no readable text. Scroll it, wait for the listings "
-            + "to load, then tap Scan concerts again.");
+            + "to load, then tap the scan button again.");
         return;
       }
       main.post(() -> {
@@ -159,6 +160,10 @@ public class AddFromSitePlugin extends Plugin {
 
   private void showDialog(String initial) {
     final boolean concertsMode = "concerts".equals(mode);
+    final boolean pageMode = "page".equals(mode);
+    // Both modes return rendered text instead of detected Spotify album links.
+    final boolean snapshotMode = concertsMode || pageMode;
+    final String scanLabel = concertsMode ? "Scan concerts" : pageMode ? "Scan albums" : "Scan";
     String url = initial == null || initial.trim().isEmpty()
         ? "https://open.spotify.com"
         : initial.trim();
@@ -207,9 +212,9 @@ public class AddFromSitePlugin extends Plugin {
     go.setOnClickListener(v -> navigateFromInput(input));
 
     Button scan = new Button(activity);
-    scan.setText(concertsMode ? "Scan concerts" : "Scan");
+    scan.setText(scanLabel);
     scan.setOnClickListener(v -> {
-      if (concertsMode) snapshotForConcerts();
+      if (snapshotMode) snapshotPage();
       else scanPage();
     });
 
@@ -246,10 +251,12 @@ public class AddFromSitePlugin extends Plugin {
         super.onPageFinished(view, url);
         currentUrl = url;
         input.setText(url);
-        // Album link detection only; a concert snapshot is explicit (the user
-        // taps "Scan concerts" once the listings are visible).
-        if (!concertsMode) scanPage();
-        else setStatus("Page loaded. Scroll to the listings, then tap Scan concerts.");
+        // Album link detection only; a rendered-text snapshot is explicit (the
+        // user taps the scan button once the listings are visible).
+        if (!snapshotMode) scanPage();
+        else setStatus("Page loaded. Scroll to the "
+            + (pageMode ? "albums" : "listings")
+            + ", then tap " + scanLabel + ".");
       }
 
       @Override
@@ -275,7 +282,7 @@ public class AddFromSitePlugin extends Plugin {
     status.setPadding(pad, pad, pad, pad);
 
     final Button done = new Button(activity);
-    done.setText(concertsMode ? "Close" : "Done (0 detected)");
+    done.setText(snapshotMode ? "Close" : "Done (0 detected)");
     done.setOnClickListener(v -> close(true));
 
     body.addView(webView, new LinearLayout.LayoutParams(
@@ -303,7 +310,7 @@ public class AddFromSitePlugin extends Plugin {
     Thread thread = new Thread(() -> {
       try {
         while (dialog != null && dialog.isShowing()) {
-          if (!concertsMode) {
+          if (!snapshotMode) {
             main.post(() -> {
               if (done != null) done.setText("Done (" + detected.size() + " detected)");
             });

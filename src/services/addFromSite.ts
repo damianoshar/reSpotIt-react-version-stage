@@ -3,13 +3,13 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 export interface AddFromSiteBrowserResult {
   ids: string[];
   url: string;
-  /** Rendered page text, only set by a concerts-mode snapshot. */
+  /** Rendered page text, only set by a concerts/page-mode snapshot. */
   text?: string;
   cancelled?: boolean;
 }
 
 interface Plugin {
-  open(options: { url?: string; mode?: 'albums' | 'concerts' }): Promise<AddFromSiteBrowserResult>;
+  open(options: { url?: string; mode?: 'albums' | 'concerts' | 'page' }): Promise<AddFromSiteBrowserResult>;
 }
 
 const plugin = registerPlugin<Plugin>('AddFromSite');
@@ -33,6 +33,20 @@ export async function openConcertPageSnapshot(
 ): Promise<{ url: string; text: string } | null> {
   if (!isNativeApp()) return null;
   const res = await plugin.open({ url, mode: 'concerts' });
+  if (!res || res.cancelled) return null;
+  return { url: res.url ?? '', text: res.text ?? '' };
+}
+
+/**
+ * Same rendered-page capture for album listings (label reads "Scan albums").
+ * Feeds the captured text to /api/v1/llm/extract-albums instead of a URL fetch,
+ * so JS-built album pages work too.
+ */
+export async function openAlbumPageSnapshot(
+  url: string,
+): Promise<{ url: string; text: string } | null> {
+  if (!isNativeApp()) return null;
+  const res = await plugin.open({ url, mode: 'page' });
   if (!res || res.cancelled) return null;
   return { url: res.url ?? '', text: res.text ?? '' };
 }
