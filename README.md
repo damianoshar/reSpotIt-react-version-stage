@@ -201,6 +201,8 @@ android/                          ← committed Capacitor project (57 files)
 
 native/audio-librespot/           ← Rust/JNI librespot module (present on this branch,
                                    the on-device player UI lives on feat/librespot-player)
+docs/                            ← landing-page assets + SCREENS.md (screen guide with screenshots)
+docs/screenshots/                ← device screenshots used by the screen guide
 ```
 
 ---
@@ -267,6 +269,15 @@ CI (`.github/workflows/release.yml`): JDK 17 + Node 20 → `npm ci` → `npm run
 | Playback jumps forward / underruns | Android throttling the WebView | Use Settings → playback tuning to disable battery optimisation and keep the screen on |
 | Album page scan finds nothing | The page renders its list lazily | Scroll the page before snapshotting, or use **Scan** to extract the links already present |
 | Only one client can be installed | Application-id clash | This client installs as `com.spotifydashboard.app.ts`; the Kotlin app is `com.spotifydashboard.app` — they coexist. Two React variants (same `.ts` id) do not: uninstall one first. |
+
+---
+
+## 📸 Screens
+
+Every screen of the app, captured from a real device with the release build:
+**[docs/SCREENS.md](docs/SCREENS.md)** — library, filters, album track sheet,
+playlists, tools, the concert calendar, the AI scans, the in-app browser, the
+AI assistant, settings and the player.
 
 ---
 
