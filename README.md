@@ -137,7 +137,7 @@ keyPassword=…
 |---|---|
 | **Library tab** | Album grid / list / compact-grid views, search, rich filters (artist, title, year, genre, date added), sorting, selection toolbar, album track sheet, stats bar, sync sheet with progress |
 | **Playlists tab** | Create, edit, delete and reorder Spotify playlists, add/remove albums, public/private visibility, playlist expiry (retention), local queue playlist, duplicates inside a playlist |
-| **Tools tab** | Stats, Add from site (in-app browser), **Scan page with AI (albums)**, Scan concerts (AI) / add concert manually, concerts calendar, AI assistant, Playlist from Spotify search, Artist discography playlist, Find duplicate albums, Follow library artists |
+| **Tools tab** | Stats, Add from site (in-app browser), **Scan page with AI (albums)**, Scan concerts (AI) / add concert manually, **concerts calendar** (month grid with day markers, day filter and card list), AI assistant, Playlist from Spotify search, Artist discography playlist, Find duplicate albums, Follow library artists |
 | **Settings tab** | Media-server mode (server URL, sign-in, sync, push/pull), backup (auto-backup + subfolder), album grid size, sync photos, autohide bottom nav / search bar, CSV import & export, hidden (duplicate) albums, retention, Spotify credentials, sign out |
 | **Player tab** | Now playing, queue, Spotify Connect devices, Web Playback SDK player, **experimental on-device librespot player** (`LocalPlaybackCard`) |
 
