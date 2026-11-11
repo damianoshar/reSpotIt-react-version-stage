@@ -152,6 +152,7 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
         setAlbums(entries);
         setUnresolved([]);
         setSelected(new Set(entries.map((a) => a.spotify_id)));
+        setResultMessage(`Found ${entries.length} album(s) on Spotify — nothing was saved yet.`);
       }
     } catch (e: any) {
       setError(e?.message ?? 'Scan failed.');
@@ -188,7 +189,7 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
       setAlbums(resolved);
       setUnresolved(unresolved);
       setSelected(new Set(resolved.map((a) => a.spotify_id)));
-      setResultMessage(`Captured the page. Found ${extracted.length} album(s), ${resolved.length} on Spotify.`);
+      setResultMessage(`Captured the page. Found ${extracted.length} album(s), ${resolved.length} on Spotify — nothing was saved yet.`);
       setUrl('');
     } catch (e: any) {
       setError(e?.message ?? 'Could not snapshot the page.');
