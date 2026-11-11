@@ -34,22 +34,28 @@ describe('Spotify library album writes', () => {
     vi.unstubAllGlobals();
   });
 
-  it('saves albums with PUT in chunks of 50', async () => {
+  it('saves albums with PUT in chunks of 50 using the JSON body', async () => {
     const ids = Array.from({ length: 51 }, (_, index) => `album-${index}`);
 
     await saveAlbums(ids);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://api.spotify.com/v1/me/albums?ids=' + encodeURIComponent(ids.slice(0, 50).join(',')),
-    );
+    // The JSON body takes up to 50 ids; the deprecated ?ids= query parameter
+    // caps at 20 and Spotify rejects bigger selections there.
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.spotify.com/v1/me/albums');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'PUT',
-      headers: { Authorization: 'Bearer test-token' },
+      headers: {
+        Authorization: 'Bearer test-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ids: ids.slice(0, 50) }),
     });
-    expect(fetchMock.mock.calls[1][0]).toBe(
-      'https://api.spotify.com/v1/me/albums?ids=' + encodeURIComponent(ids[50]),
-    );
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.spotify.com/v1/me/albums');
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: 'PUT',
+      body: JSON.stringify({ ids: [ids[50]] }),
+    });
     expect(sleep).toHaveBeenCalledTimes(1);
   });
 

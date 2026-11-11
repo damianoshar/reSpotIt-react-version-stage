@@ -1755,6 +1755,21 @@ body.board-autohide-bar .filter-bar, body.board-autohide-bar .pl-toolbar { trans
 .add-from-site-meta { opacity: .7; font-size: .85rem; }
 .import-result { color: var(--accent, #1db954); font-size: .9rem; }
 
+/* Playlist target for the found albums: a new playlist the user names, or
+   one of the playlists they already have. */
+.add-from-site-playlist {
+  display: flex; flex-direction: column; gap: .4rem;
+  border: 1px solid var(--border, #2a2a2a); border-radius: 12px;
+  padding: .75rem; margin: .75rem 0;
+}
+.add-from-site-playlist-label {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; opacity: .6;
+}
+.add-from-site-playlist-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.add-from-site-playlist-row .form-input { flex: 1 1 12rem; min-width: 0; }
+.add-from-site-playlist-row .search-input { flex: 1 1 10rem; min-width: 0; }
+.add-from-site-playlist .queue-help { margin: 0; }
+
 /* Recent + saved page links (concerts, album scans, add-from-site). */
 .link-history { display: flex; flex-direction: column; gap: .4rem; }
 .link-history-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }

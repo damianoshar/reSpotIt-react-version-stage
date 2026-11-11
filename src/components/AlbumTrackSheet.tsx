@@ -11,8 +11,7 @@ import {
 } from '../services/SpotifyPlaylistService';
 import { SPOTIFY_API_URL } from '../config/spotify';
 import { getValidAccessToken } from '../services/SpotifyAuthService';
-import { queueTrackToSpotifyActive } from '../services/SpotifyPlaybackService';
-import { playWithWebPlaybackSdk, playContextWithWebPlaybackSdk } from '../services/WebPlaybackSdkService';
+import { queueTrackToSpotifyActive, playOnActiveDevice } from '../services/SpotifyPlaybackService';
 import { apiFetch } from '../services/remote/apiClient';
 import { spotifyAlbumUrl } from '../utils/spotifyLinks';
 import type { LocalPlaybackTrack } from '../services/librespotPlayer';
@@ -96,7 +95,7 @@ export const AlbumTrackSheet: React.FC<Props> = ({
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState('');
   const [busy,        setBusy]        = useState('');
-  const [webPlaying,  setWebPlaying]  = useState(false);
+  const [playing,  setPlaying]  = useState(false);
   const [status,      setStatus]      = useState('');
   const [playlists,   setPlaylists]   = useState<SpotifyPlaylist[]>([]);
   const [plLoading,    setPlLoading]    = useState(false);
@@ -226,7 +225,7 @@ export const AlbumTrackSheet: React.FC<Props> = ({
   ].filter(Boolean).join(' · ');
 
   const spotifyQueueLegend = [
-    'Play = play on Spotify',
+    'Play = play on your active Spotify device',
     'Next = queue on Spotify',
     playlistId ? 'Remove = remove from the playlist' : null,
   ].filter(Boolean).join(' · ');
@@ -342,39 +341,40 @@ export const AlbumTrackSheet: React.FC<Props> = ({
     setStatus('“' + t.title + '” is not in this playlist.');
   };
 
-  const getWebPlaybackToken = async (): Promise<string> => {
-    const token = await getValidAccessToken();
-    if (!token) throw new Error('Connect Spotify on this device first.');
-    return token;
-  };
-
-  const handlePlayAlbumWeb = async () => {
-    const uris = tracks.map((t) => t.uri || (t.id ? 'spotify:track:' + t.id : '')).filter(Boolean);
-    if (!uris.length) { setStatus('No playable track URIs for this album.'); return; }
-    setWebPlaying(true);
+  /**
+   * Play the album on the ACTIVE Spotify playback device.
+   *
+   * UI policy: a "Play" control never targets the on-device player and never
+   * implicitly the Web Playback SDK session — it targets the device the user
+   * is currently listening on.
+   */
+  const handlePlayAlbumSpotify = async () => {
+    if (!albumId) { setStatus('No album to play.'); return; }
+    setPlaying(true);
     setStatus('');
     try {
-      await playWithWebPlaybackSdk(uris, getWebPlaybackToken);
-      setStatus('Playing ' + uris.length + ' track' + (uris.length === 1 ? '' : 's') + '.');
+      await playOnActiveDevice('spotify:album:' + albumId);
+      setStatus('Playing “' + (title || 'album') + '” on your active device.');
     } catch (e: any) {
       setStatus(e?.message ?? 'Playback failed.');
     } finally {
-      setWebPlaying(false);
+      setPlaying(false);
     }
   };
 
-  const handlePlayTrackWeb = async (t: Track, index: number) => {
+  /** Play one track on the ACTIVE Spotify playback device. */
+  const handlePlayTrackSpotify = async (t: Track) => {
     const uri = t.uri || (t.id ? 'spotify:track:' + t.id : '');
     if (!uri) { setStatus('No playable track URI.'); return; }
-    setWebPlaying(true);
+    setPlaying(true);
     setStatus('');
     try {
-      await playContextWithWebPlaybackSdk('spotify:album:' + albumId, getWebPlaybackToken, index);
-      setStatus('Playing ' + (t.title || 'track') + ' from album position ' + (index + 1) + '.');
+      await playOnActiveDevice(uri);
+      setStatus('Playing “' + (t.title || 'track') + '” on your active device.');
     } catch (e: any) {
       setStatus(e?.message ?? 'Playback failed.');
     } finally {
-      setWebPlaying(false);
+      setPlaying(false);
     }
   };
 
@@ -520,10 +520,12 @@ export const AlbumTrackSheet: React.FC<Props> = ({
               <button
                 type="button"
                 className="track-action-btn track-action-primary"
-                onClick={() => void handlePlayAlbumWeb()}
-                disabled={webPlaying || loading || !tracks.length}
+                onClick={() => void handlePlayAlbumSpotify()}
+                disabled={playing || loading || !tracks.length}
+                title="Play this album on your active Spotify device"
+                aria-label={'Play ' + (title || 'album') + ' on your active Spotify device'}
               >
-                {webPlaying ? 'Playing…' : 'Play album'}
+                {playing ? 'Playing…' : 'Play album'}
               </button>
             )}
             {localPlaybackAvailable && localPlaybackEnabled && (
@@ -725,10 +727,10 @@ export const AlbumTrackSheet: React.FC<Props> = ({
                             <button
                               type="button"
                               className="track-row-btn track-row-play"
-                              onClick={() => void handlePlayTrackWeb(t, i)}
-                              disabled={webPlaying}
-                              title="Play this track on Spotify"
-                              aria-label={'Play ' + t.title + ' on Spotify'}
+                              onClick={() => void handlePlayTrackSpotify(t)}
+                              disabled={playing}
+                              title="Play this track on your active Spotify device"
+                              aria-label={'Play ' + t.title + ' on your active Spotify device'}
                             >
                               Play
                             </button>

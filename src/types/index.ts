@@ -18,6 +18,22 @@ export interface Queueable {
   id: string;
 }
 
+/**
+ * Album shape accepted by the "add the found albums to a playlist" flows.
+ *
+ * The AI scan resolves albums as {spotify_id, artist_name}; the add-from-site
+ * dialog as {id, artist}. Both are normalised before they reach Spotify.
+ */
+export interface PlaylistAlbumLike {
+  id?:          string;
+  spotify_id?:  string;
+  title:        string;
+  artist?:      string;
+  artist_name?: string;
+  year?:        number;
+  image_url?:   string;
+}
+
 export interface StatsEntry {
   name:  string;
   count: number;

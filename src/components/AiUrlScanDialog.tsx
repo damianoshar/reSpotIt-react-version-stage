@@ -16,6 +16,7 @@ import {
 } from '../services/LLMService';
 import { resolveAlbums, type ResolvedAlbum } from '../services/remote/spotifyRemote';import type { SyncResult } from '../services/SyncService';
 import { isNativeApp, openAlbumPageSnapshot } from '../services/addFromSite';
+import type { PlaylistAlbumLike } from '../types';
 import { LinkHistory } from './LinkHistory';
 import { recordRecent } from '../services/linkHistory';
 
@@ -24,8 +25,16 @@ export interface AiUrlScanDialogProps {
   onClose: () => void;
   serverUrl: string;
   onImportCsv: (csvText: string) => Promise<SyncResult>;
-  onImported: (result: SyncResult) => void;
-  onCreatePlaylist?: (albums: ResolvedAlbum[]) => Promise<{ id: string; name: string; tracksAdded: number }>;
+  onImported: (result: SyncResult, message?: string) => void;
+  /**
+   * Save the selected albums to the user's Spotify library.
+   * UI policy: "add to the library" must reach Spotify — writing only to the
+   * dashboard's local index is not enough.
+   */
+  onSaveToSpotify?: (albumIds: string[]) => Promise<number>;
+  onCreatePlaylist?: (name: string, albums: PlaylistAlbumLike[]) => Promise<{ id: string; name: string; tracksAdded: number }>;
+  onAddToPlaylist?: (playlistId: string, albums: PlaylistAlbumLike[]) => Promise<number>;
+  onListPlaylists?: () => Promise<{ id: string; name: string }[]>;
   onPlaylistCreated?: (name: string) => void;
 }
 
@@ -59,7 +68,8 @@ async function fetchAlbum(id: string): Promise<ResolvedAlbum> {
 }
 
 export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
-  open, onClose, serverUrl, onImportCsv, onImported, onCreatePlaylist, onPlaylistCreated,
+  open, onClose, serverUrl, onImportCsv, onImported, onSaveToSpotify,
+  onCreatePlaylist, onAddToPlaylist, onListPlaylists, onPlaylistCreated,
 }) => {
   const [url, setUrl] = useState('');
   const [pasteText, setPasteText] = useState('');
@@ -75,6 +85,12 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
   const [chats, setChats] = useState<LLMChatSummary[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Playlist target for the found albums: a new playlist with a name the user
+  // chooses, or one of the playlists they already have.
+  const [playlistName, setPlaylistName] = useState('');
+  const [playlistTarget, setPlaylistTarget] = useState('');
+  const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>([]);
+  const [playlistsLoading, setPlaylistsLoading] = useState(false);
 
   // Load chat history on mount
   useEffect(() => {
@@ -99,6 +115,7 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
   const reset = () => {
     setUrl(''); setPasteText(''); setAlbums([]); setUnresolved([]); setSelected(new Set());
     setError(''); setResultMessage(''); setChatId(null);
+    setPlaylistName(''); setPlaylistTarget(''); setPlaylists([]);
   };
 
   const handleScan = async () => {
@@ -206,6 +223,13 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
     if (!selectedAlbums.length) return;
     setImporting(true); setError(''); setResultMessage('');
     try {
+      // 1. Spotify first — the albums have to reach the user's Spotify
+      //    library, not only the dashboard's own index.
+      let saved = 0;
+      if (onSaveToSpotify) {
+        saved = await onSaveToSpotify(selectedAlbums.map((a) => a.spotify_id));
+      }
+      // 2. Then the dashboard index (so the grid shows them right away).
       const rows = selectedAlbums.map((a) => ({
         id: a.spotify_id,
         title: a.title,
@@ -217,10 +241,15 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
       }));
       const csv = Papa.unparse(rows, { columns: ['id', 'title', 'artist', 'year', 'genre', 'image_url', 'added_at'] });
       const result = await onImportCsv(csv);
+      const message = saved
+        ? `Saved ${saved} album(s) to your Spotify library. Imported ${result.imported}, skipped ${result.skipped}, existing ${result.existing}.`
+        : `Imported ${result.imported}, skipped ${result.skipped}, existing ${result.existing}.`;
       // Persist chat BEFORE closing dialog (onImported closes it)
-      await persistScanChat(`Saved ${selectedAlbums.length} album(s) to library.`);
-      onImported(result);
-      setResultMessage(`Imported ${result.imported}, skipped ${result.skipped}, existing ${result.existing}.`);
+      await persistScanChat(saved
+        ? `Saved ${selectedAlbums.length} album(s) to Spotify and the library.`
+        : `Saved ${selectedAlbums.length} album(s) to the library.`);
+      onImported(result, message);
+      setResultMessage(message);
     } catch (e: any) {
       setError(e?.message ?? 'Import failed.');
     } finally {
@@ -228,16 +257,49 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
     }
   };
 
+  /** Load the user's playlists so the found albums can be added to one. */
+  const loadPlaylists = async () => {
+    if (!onListPlaylists) return;
+    setPlaylistsLoading(true);
+    try {
+      setPlaylists(await onListPlaylists());
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not load playlists.');
+    } finally {
+      setPlaylistsLoading(false);
+    }
+  };
+
+  /**
+   * Add the found albums to a playlist: either a new playlist with the name
+   * the user typed, or one of the playlists they already have.
+   */
   const handlePlaylist = async () => {
-    if (!selectedAlbums.length || !onCreatePlaylist) return;
+    if (!selectedAlbums.length) return;
+    const existing = playlistTarget;
+    const newName = playlistName.trim();
+    if (!existing && !newName) {
+      setError('Name the new playlist, or pick one of your playlists.');
+      return;
+    }
+    if (!onCreatePlaylist && !onAddToPlaylist) return;
     setCreating(true); setError(''); setResultMessage('');
     try {
-      const name = `AI scan ${new Date().toLocaleDateString()}`;
-      const res = await onCreatePlaylist(selectedAlbums);
-      onPlaylistCreated?.(res.name || name);
-      // Persist chat after playlist creation
-      await persistScanChat(`Created playlist with ${selectedAlbums.length} album(s).`);
-      setResultMessage(`Created playlist "${res.name}" with ${res.tracksAdded} tracks.`);
+      if (existing) {
+        if (!onAddToPlaylist) throw new Error('Adding to a playlist is not available here.');
+        const tracksAdded = await onAddToPlaylist(existing, selectedAlbums);
+        const name = playlists.find((p) => p.id === existing)?.name ?? 'playlist';
+        onPlaylistCreated?.(name);
+        await persistScanChat(`Added ${selectedAlbums.length} album(s) to "${name}".`);
+        setResultMessage(`Added ${selectedAlbums.length} album(s) to “${name}” (${tracksAdded} tracks).`);
+      } else {
+        if (!onCreatePlaylist) throw new Error('Creating a playlist is not available here.');
+        const res = await onCreatePlaylist(newName, selectedAlbums);
+        onPlaylistCreated?.(res.name || newName);
+        // Persist chat after playlist creation
+        await persistScanChat(`Created playlist with ${selectedAlbums.length} album(s).`);
+        setResultMessage(`Created playlist “${res.name || newName}” with ${res.tracksAdded} tracks.`);
+      }
     } catch (e: any) {
       setError(e?.message ?? 'Playlist creation failed.');
     } finally {
@@ -272,16 +334,6 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
     } catch (e: any) {
       console.warn('Could not persist scan chat:', e);
     }
-  };
-
-  const handleSaveWithChat = async () => {
-    await handleSave();
-    await persistScanChat(`Saved ${selectedAlbums.length} album(s) to library.`);
-  };
-
-  const handlePlaylistWithChat = async () => {
-    await handlePlaylist();
-    await persistScanChat(`Created playlist with ${selectedAlbums.length} album(s).`);
   };
 
   const loadChat = async (chatId: string) => {
@@ -442,13 +494,43 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
                 </li>
               ))}
             </ul>
+            {(onCreatePlaylist || onAddToPlaylist) && (
+              <div className="add-from-site-playlist">
+                <span className="add-from-site-playlist-label">Playlist</span>
+                <div className="add-from-site-playlist-row">
+                  <input
+                    className="form-input"
+                    placeholder="New playlist name"
+                    value={playlistName}
+                    onChange={(e) => setPlaylistName(e.target.value)}
+                    disabled={creating || !!playlistTarget}
+                    aria-label="Name of the new playlist"
+                  />
+                  <select
+                    className="search-input"
+                    value={playlistTarget}
+                    onChange={(e) => setPlaylistTarget(e.target.value)}
+                    disabled={creating || playlistsLoading}
+                    aria-label="Existing playlist"
+                    onFocus={() => { if (!playlists.length && onListPlaylists) void loadPlaylists(); }}
+                  >
+                    <option value="">Create a new playlist</option>
+                    {playlists.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <p className="queue-help">
+                  Type a name to create a playlist, or pick one of your playlists.
+                  The {selectedAlbums.length} selected album(s) are added with all their tracks.
+                </p>
+              </div>
+            )}
             <div className="add-from-site-footer">
-              <button type="button" className="sync-btn" onClick={() => void handleSaveWithChat()} disabled={importing || !selectedAlbums.length}>
-                {importing ? 'Saving…' : `Save ${selectedAlbums.length} to library`}
+              <button type="button" className="sync-btn" onClick={() => void handleSave()} disabled={importing || !selectedAlbums.length}>
+                {importing ? 'Saving…' : `Save ${selectedAlbums.length} to Spotify & library`}
               </button>
-              {onCreatePlaylist && (
-                <button type="button" className="sync-btn sync-btn--ghost" onClick={() => void handlePlaylistWithChat()} disabled={creating || !selectedAlbums.length}>
-                  {creating ? 'Creating…' : `Create playlist (${selectedAlbums.length})`}
+              {(onCreatePlaylist || onAddToPlaylist) && (
+                <button type="button" className="sync-btn sync-btn--ghost" onClick={() => void handlePlaylist()} disabled={creating || !selectedAlbums.length}>
+                  {creating ? 'Adding…' : `Add to playlist (${selectedAlbums.length})`}
                 </button>
               )}
               <button type="button" className="sync-btn sync-btn--ghost" onClick={() => { reset(); onClose(); }}>Close</button>

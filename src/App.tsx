@@ -32,7 +32,7 @@ import { listHiddenDuplicates, hideDuplicates, restoreHidden } from './services/
 import { SyncPhotosProvider }     from './contexts/SyncPhotosContext';
 import { getExportAlbums, getExistingAlbumIds, upsertAlbum, saveToStore } from './services/DatabaseService';
 import { exportRemoteBackup }   from './services/remote/libraryRemote';
-import { followLibraryArtistsRemote } from './services/remote/spotifyRemote';
+import { followLibraryArtistsRemote, saveRemoteAlbums } from './services/remote/spotifyRemote';
 import { useSpotifyAuth }       from './hooks/useSpotifyAuth';
 import { useDataSource }        from './hooks/useDataSource';
 import { useServerAuth }        from './hooks/useServerAuth';
@@ -44,8 +44,8 @@ import { usePlaylistDashboard } from './hooks/usePlaylistDashboard';
 import { usePlayerQueue }       from './hooks/usePlayerQueue';
 // Local librespot playback has been replaced by the Web Playback SDK player.
 import { Artwork }              from './components/Artwork';
-import { addAlbumsToQueue, createPlaylistFromAlbums } from './services/SpotifyPlaylistService';import { removeSavedAlbums, getSavedAlbumArtistIds, areArtistsFollowed, followArtists } from './services/SpotifyApiService';
-import { removeRemoteAlbumsFromPlaylist, createAndAddRemotePlaylist } from './services/remote/playlistRemote';import { deletePlaylistAlbums } from './services/PlaylistDatabaseService';
+import { addAlbumsToQueue, createPlaylistFromAlbums, addAlbumsToPlaylist, getUserPlaylists } from './services/SpotifyPlaylistService';import { removeSavedAlbums, saveAlbums, getSavedAlbumArtistIds, areArtistsFollowed, followArtists } from './services/SpotifyApiService';
+import { removeRemoteAlbumsFromPlaylist, createAndAddRemotePlaylist, listRemotePlaylists, addRemoteAlbumsToPlaylist } from './services/remote/playlistRemote';import { deletePlaylistAlbums } from './services/PlaylistDatabaseService';
 import { getValidAccessToken }   from './services/SpotifyAuthService';
 import { loadSpotifyCredentials, hasSpotifyCredentials } from './services/SpotifyCredentialsService';
 import { initWebPlaybackSdk, disconnectWebPlaybackSdk } from './services/WebPlaybackSdkService';
@@ -60,7 +60,7 @@ import {
 import { queueRemoteAlbums }    from './services/remote/playlistRemote';
 import { describeRemoteError }   from './services/errorCodes';
 import { exportBackup }         from './services/ExportService';
-import { Album, ViewMode }       from './types';
+import { Album, ViewMode, PlaylistAlbumLike }       from './types';
 import { PlaylistAlbum }          from './services/SpotifyPlaylistFeedService';
 
 type ActiveModal = 'sync' | 'playlist' | 'pl-playlist' | null;
@@ -414,24 +414,90 @@ export default function App() {
       showToast(e?.message ?? 'Could not restore hidden albums.', false);
     }
   }, [lib, showToast, storageCtx, isRemote]);
-  const handleAiScanCreatePlaylist = useCallback(async (albums: { spotify_id: string; title: string; artist_name: string; year: number; image_url: string }[]) => {
-    const name = `AI scan ${new Date().toLocaleDateString()}`;
+  /**
+   * Shared shape for the "add the found albums to a playlist" flows. The AI
+   * scan resolves albums as {spotify_id, artist_name}, the add-from-site
+   * dialog as {id, artist} — both are normalised to one shape here.
+   */
+  type PlaylistAlbumInput = { id: string; title: string; artist: string; year: number; image_url: string };
+
+  const normalisePlaylistAlbums = useCallback((albums: PlaylistAlbumLike[]): PlaylistAlbumInput[] => albums.map((a) => ({
+    id: a.id ?? a.spotify_id ?? '',
+    title: a.title,
+    artist: a.artist ?? a.artist_name ?? '',
+    year: a.year ?? 0,
+    image_url: a.image_url ?? '',
+  })), []);
+
+  const toAlbumObjects = useCallback((albums: PlaylistAlbumInput[]): Album[] => albums.map((a) => ({
+    id: a.id,
+    title: a.title,
+    artist: a.artist,
+    year: a.year ?? 0,
+    genre: '',
+    image_url: a.image_url ?? '',
+    image_path: '',
+    added_at: new Date().toISOString(),
+  })), []);
+
+  /**
+   * Save albums to the user's Spotify library.
+   *
+   * UI policy: an "add to the library" action has to reach Spotify. Writing
+   * only to the dashboard's own index is not "adding it to Spotify".
+   * Remote mode has no device token, so the media server does the write.
+   */
+  const handleSaveToSpotify = useCallback(async (albumIds: string[]): Promise<number> => {
+    const ids = albumIds.filter(Boolean);
+    if (!ids.length) return 0;
     if (isRemote) {
-      return createAndAddRemotePlaylist(ds.settings.serverUrl, name, albums.map((a) => a.spotify_id));
+      return saveRemoteAlbums(ds.settings.serverUrl, ids);
     }
-    const albumObjs: Album[] = albums.map((a) => ({
-      id: a.spotify_id,
-      title: a.title,
-      artist: a.artist_name,
-      year: a.year ?? 0,
-      genre: '',
-      image_url: a.image_url ?? '',
-      image_path: '',
-      added_at: new Date().toISOString(),
-    }));
-    const res = await createPlaylistFromAlbums(name, albumObjs);
+    await saveAlbums(ids);
+    return ids.length;
+  }, [isRemote, ds.settings.serverUrl]);
+
+  /** The user's playlists, so the found albums can be added to one of them. */
+  const handleListPlaylists = useCallback(async (): Promise<{ id: string; name: string }[]> => {
+    if (isRemote) {
+      const { playlists } = await listRemotePlaylists(ds.settings.serverUrl);
+      return playlists.map((p) => ({ id: p.id, name: p.name }));
+    }
+    const list = await getUserPlaylists();
+    return list.map((p) => ({ id: p.id, name: p.name }));
+  }, [isRemote, ds.settings.serverUrl]);
+
+  /** Add the found albums to a playlist the user already has. */
+  const handleAddToPlaylist = useCallback(async (playlistId: string, albums: PlaylistAlbumLike[]): Promise<number> => {
+    const normalised = normalisePlaylistAlbums(albums);
+    const ids = normalised.map((a) => a.id).filter(Boolean);
+    if (!ids.length) return 0;
+    if (isRemote) {
+      const res = await addRemoteAlbumsToPlaylist(ds.settings.serverUrl, ids, playlistId);
+      return res.tracksAdded;
+    }
+    const res = await addAlbumsToPlaylist(toAlbumObjects(normalised), playlistId);
+    return res.tracksAdded;
+  }, [isRemote, ds.settings.serverUrl, toAlbumObjects, normalisePlaylistAlbums]);
+
+  /** Create a playlist with the name the user typed and add the albums to it. */
+  const handleCreateNamedPlaylist = useCallback(async (name: string, albums: PlaylistAlbumLike[]) => {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Playlist name cannot be empty.');
+    const normalised = normalisePlaylistAlbums(albums);
+    const ids = normalised.map((a) => a.id).filter(Boolean);
+    if (!ids.length) throw new Error('No albums selected.');
+    if (isRemote) {
+      return createAndAddRemotePlaylist(ds.settings.serverUrl, trimmed, ids);
+    }
+    const res = await createPlaylistFromAlbums(trimmed, toAlbumObjects(normalised));
     return { id: res.playlist.id, name: res.playlist.name, tracksAdded: res.tracksAdded };
-  }, [isRemote, ds.settings.serverUrl, showToast]);
+  }, [isRemote, ds.settings.serverUrl, toAlbumObjects, normalisePlaylistAlbums]);
+
+  /** AI scan: the found albums use the same named-playlist flow. */
+  const handleAiScanCreatePlaylist = useCallback(async (name: string, albums: PlaylistAlbumLike[]) => {
+    return handleCreateNamedPlaylist(name, albums);
+  }, [handleCreateNamedPlaylist]);
   const handleRemoveSelectedFromPlaylist = useCallback(async () => {
     const pid = pld.selectedPlaylist?.id;
     if (!pid || plSel.selected.size === 0) return;
@@ -1022,9 +1088,13 @@ export default function App() {
                 open={addFromSiteOpen}
                 onClose={() => setAddFromSiteOpen(false)}
                 onImportCsv={lib.syncCSV}
-                onImported={() => {
+                onSaveToSpotify={handleSaveToSpotify}
+                onCreatePlaylist={handleCreateNamedPlaylist}
+                onAddToPlaylist={handleAddToPlaylist}
+                onListPlaylists={handleListPlaylists}
+                onImported={(_result, message) => {
                   setAddFromSiteOpen(false);
-                  showToast('Imported albums from website.', true);
+                  showToast(message ?? 'Imported albums from website.', true);
                 }}
               />
             )}
@@ -1034,11 +1104,14 @@ export default function App() {
                 onClose={() => setAiUrlScanOpen(false)}
                 serverUrl={ds.settings.serverUrl}
                 onImportCsv={lib.syncCSV}
-                onImported={(result) => {
-                  setAiUrlScanOpen(false);
-                  showToast(`Imported ${result.imported}, skipped ${result.skipped}, existing ${result.existing}.`, true);
-                }}
+                onSaveToSpotify={handleSaveToSpotify}
                 onCreatePlaylist={handleAiScanCreatePlaylist}
+                onAddToPlaylist={handleAddToPlaylist}
+                onListPlaylists={handleListPlaylists}
+                onImported={(_result, message) => {
+                  setAiUrlScanOpen(false);
+                  showToast(message ?? 'Imported albums from the AI scan.', true);
+                }}
                 onPlaylistCreated={(name) => showToast(`Created playlist "${name}".`, true)}
               />
             )}
