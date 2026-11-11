@@ -72,6 +72,7 @@ interface LibrespotPlayerPlugin {
   previous(): Promise<LocalPlaybackState>;
   seek(options: { positionMs: number }): Promise<LocalPlaybackState>;
   forgetAccount(): Promise<LocalPlaybackState>;
+  signIn(): Promise<LocalPlaybackState>;
   setSettings(options: {
     bitrate: string;
     bufferSeconds: number;
@@ -180,6 +181,16 @@ export function seekLocalPlayback(positionMs: number): Promise<LocalPlaybackStat
 
 export function forgetLocalPlaybackAccount(): Promise<LocalPlaybackState> {
   return plugin.forgetAccount();
+}
+
+/**
+ * Opens Spotify's consent page inside the app for the on-device player.
+ *
+ * Resolves as soon as the page is launched; the polled state reports the
+ * outcome (`connecting`, then `connected` or `needsAuth` + `error`).
+ */
+export function signInLocalPlayback(): Promise<LocalPlaybackState> {
+  return plugin.signIn();
 }
 
 export function getLocalPlaybackSettings(): Promise<LocalPlaybackSettings> {

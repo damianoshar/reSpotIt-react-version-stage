@@ -17,6 +17,7 @@ import {
   removeLocalQueueItem,
   resumeLocalPlayback,
   seekLocalPlayback,
+  signInLocalPlayback,
   setLocalPlaybackEnabled,
   setLocalPlaybackKeepConnected,
   stopLocalPlayback,
@@ -47,6 +48,7 @@ export interface LocalPlayerController {
   previous:         () => Promise<void>;
   seek:             (positionMs: number) => Promise<void>;
   forgetAccount:    () => Promise<void>;
+  signIn:           () => Promise<void>;
   applySettings:    (settings: LocalPlaybackSettings) => Promise<void>;
   getSettings:      () => Promise<LocalPlaybackSettings>;
   refresh:          () => Promise<void>;
@@ -163,6 +165,9 @@ export function useLocalPlayback(): LocalPlayerController {
   const forgetAccount = useCallback(async () => {
     await run(forgetLocalPlaybackAccount);
   }, [run]);
+  const signIn = useCallback(async () => {
+    await run(signInLocalPlayback);
+  }, [run]);
 
   const applySettings = useCallback(async (settings: LocalPlaybackSettings) => {
     if (!available) return;
@@ -202,6 +207,7 @@ export function useLocalPlayback(): LocalPlayerController {
     previous,
     seek,
     forgetAccount,
+    signIn,
     applySettings,
     getSettings,
     refresh,

@@ -149,6 +149,23 @@ export const LocalPlaybackCard: React.FC<{ local: LocalPlayerController }> = ({ 
 
           {local.error && <div className="player-error local-player-error" role="alert">{local.error}</div>}
 
+          {!connected && !connecting && (
+            <div className="local-auth">
+              <button
+                type="button"
+                className="queue-btn queue-btn--primary"
+                onClick={() => { void local.signIn(); }}
+                disabled={local.busy}
+              >
+                Sign in to Spotify
+              </button>
+              <p className="player-hint">
+                Opens Spotify&apos;s consent page inside reSpotIt. The login is independent from the
+                dashboard login and only happens once per account.
+              </p>
+            </div>
+          )}
+
           {hasTrack ? (
             <div className="local-now">
               <div className="local-now-art">
@@ -185,7 +202,9 @@ export const LocalPlaybackCard: React.FC<{ local: LocalPlayerController }> = ({ 
                 ? 'Connecting to Spotify…'
                 : connected
                   ? 'Ready. Open an album and choose "Play album on this device".'
-                  : 'Open an album and choose "Play album on this device" to start.'}
+                  : state?.needsAuth
+                    ? 'Sign in to Spotify above to enable on-device playback.'
+                    : 'Open an album and choose "Play album on this device" to start.'}
             </p>
           )}
 

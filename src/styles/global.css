@@ -1224,6 +1224,17 @@ input, select { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .local-player-error { margin-top: 0.7rem; margin-bottom: 0; }
+.local-auth {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.7rem;
+}
+.local-auth .player-hint {
+  margin: 0;
+  flex: 1 1 14rem;
+}
 .local-now {
   display: flex;
   align-items: flex-start;

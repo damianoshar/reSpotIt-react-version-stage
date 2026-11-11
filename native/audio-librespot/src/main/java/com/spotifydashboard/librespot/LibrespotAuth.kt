@@ -21,7 +21,15 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 
 /** Interactive Spotify authorization failed (cancelled, timed out, refused, ...). */
-class LibrespotAuthException(message: String, cause: Throwable? = null) : Exception(message, cause)
+open class LibrespotAuthException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * The in-app consent page could not be used at all (no WebView, activity could
+ * not start, page never loaded). Unlike a cancellation or timeout this means
+ * the *mechanism* failed, so trying the system browser next is worthwhile.
+ */
+class LibrespotAuthUnavailableException(message: String, cause: Throwable? = null) :
+    LibrespotAuthException(message, cause)
 
 /**
  * On-device OAuth 2.0 authorization-code + PKCE for librespot playback.
@@ -56,13 +64,95 @@ object LibrespotAuth {
     const val DEFAULT_TIMEOUT_MS = 5 * 60 * 1000L
 
     /**
+     * Extra slack on top of the page timeout before the waiting thread gives up:
+     * the consent activity reports its own timeout first, and the token
+     * exchange needs a moment after the redirect.
+     */
+    private const val AWAIT_GRACE_MS = 20_000L
+
+    /**
      * Runs the full interactive flow and returns a `streaming` access token.
      *
-     * @param context used only to launch the browser (application context is fine).
-     * @param port preferred loopback port; an ephemeral port is used if it is busy.
-     * @param timeoutMs how long to wait for the browser callback.
+     * The consent page is rendered **inside the app** (see
+     * [LibrespotAuthActivity]); the system browser is only used when that is
+     * not possible. The in-app page is the primary path because the loopback +
+     * browser flow silently dies on devices whose browser cannot open links
+     * (observed on Android 7.0 with a browser whose intent trampoline activity
+     * never creates a window — the listener then times out after five minutes).
+     *
+     * @param context used to start the consent page / browser (application context is fine).
+     * @param port preferred loopback port used in the redirect URI.
+     * @param timeoutMs how long to wait for the user to finish the login.
      */
     fun authorize(
+        context: Context,
+        port: Int = DEFAULT_PORT,
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+    ): String {
+        val appContext = context.applicationContext
+        return try {
+            authorizeInApp(appContext, port, timeoutMs)
+        } catch (e: LibrespotAuthUnavailableException) {
+            Log.w(TAG, "in-app login unavailable (${e.message}); falling back to the system browser")
+            authorizeInBrowser(appContext, port, timeoutMs)
+        }
+    }
+
+    /**
+     * Renders Spotify's consent page in a WebView inside the app and blocks
+     * until the redirect is intercepted and exchanged for a token.
+     *
+     * @throws LibrespotAuthUnavailableException when the in-app page cannot be
+     *   used at all (no WebView / activity could not start / page did not load).
+     * @throws LibrespotAuthException when the user cancels or the login fails.
+     */
+    fun authorizeInApp(
+        context: Context,
+        port: Int = DEFAULT_PORT,
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+    ): String {
+        val appContext = context.applicationContext
+        val redirectUri = "http://127.0.0.1:$port$CALLBACK_PATH"
+        val verifier = Pkce.newVerifier()
+        val state = Pkce.newState()
+        val url = buildAuthorizeUrl(redirectUri, state, Pkce.challenge(verifier))
+
+        // Persist before the page loads: if Android kills the process while the
+        // consent page is open, the activity can still finish the exchange.
+        LibrespotPendingAuth.save(appContext, LibrespotPendingAuth.Pending(verifier, state, redirectUri))
+        LibrespotAuthHandoff.reset()
+
+        try {
+            appContext.startActivity(
+                LibrespotAuthActivity.intent(appContext, url, redirectUri, state, timeoutMs)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            LibrespotPendingAuth.clear(appContext)
+            throw LibrespotAuthUnavailableException(
+                "Could not open the Spotify login page in the app",
+                e,
+            )
+        }
+
+        Log.i(TAG, "in-app Spotify authorization started (redirect=$redirectUri)")
+        return try {
+            val token = LibrespotAuthHandoff.await(timeoutMs + AWAIT_GRACE_MS)
+            LibrespotPendingAuth.clear(appContext)
+            Log.i(TAG, "in-app authorization completed")
+            token
+        } catch (e: Exception) {
+            LibrespotPendingAuth.clear(appContext)
+            throw e
+        }
+    }
+
+    /**
+     * Legacy path: opens the consent page in the system browser and waits for
+     * the loopback redirect. Kept as the fallback for devices without a usable
+     * WebView.
+     */
+    fun authorizeInBrowser(
         context: Context,
         port: Int = DEFAULT_PORT,
         timeoutMs: Long = DEFAULT_TIMEOUT_MS,
@@ -122,6 +212,106 @@ object LibrespotAuth {
             "&state=${enc(state)}" +
             "&code_challenge=${enc(codeChallenge)}" +
             "&code_challenge_method=S256"
+    }
+}
+
+/**
+ * PKCE material of the in-app login, persisted before the consent page opens.
+ *
+ * The code verifier must survive process death: Android may kill the app while
+ * the consent page is in the foreground, and the redirect then cold-starts a
+ * fresh process that has no in-memory state. Written with `commit()` (not
+ * `apply()`) so the values are on disk before the page starts loading.
+ * Entries expire after [TTL_MS] and are cleared on success, failure and logout.
+ */
+internal object LibrespotPendingAuth {
+    private const val TAG = "LibrespotAuth"
+    private const val PREFS = "librespot_auth"
+    private const val KEY_VERIFIER = "pending_code_verifier"
+    private const val KEY_STATE = "pending_auth_state"
+    private const val KEY_REDIRECT_URI = "pending_redirect_uri"
+    private const val KEY_CREATED_AT = "pending_auth_time"
+    private const val TTL_MS = 30 * 60 * 1000L
+
+    data class Pending(
+        val verifier: String,
+        val state: String,
+        val redirectUri: String,
+        val createdAt: Long = System.currentTimeMillis(),
+    )
+
+    fun save(context: Context, pending: Pending) {
+        prefs(context).edit()
+            .putString(KEY_VERIFIER, pending.verifier)
+            .putString(KEY_STATE, pending.state)
+            .putString(KEY_REDIRECT_URI, pending.redirectUri)
+            .putLong(KEY_CREATED_AT, pending.createdAt)
+            .commit()
+        Log.i(TAG, "persisted pending login (state=${pending.state.take(8)}…)")
+    }
+
+    /** Returns the pending request when [state] matches and it has not expired. */
+    fun load(context: Context, state: String?): Pending? {
+        val prefs = prefs(context)
+        val storedState = prefs.getString(KEY_STATE, null) ?: return null
+        val verifier = prefs.getString(KEY_VERIFIER, null) ?: return null
+        val redirectUri = prefs.getString(KEY_REDIRECT_URI, null) ?: return null
+        val createdAt = prefs.getLong(KEY_CREATED_AT, 0L)
+
+        if (state != null && state != storedState) {
+            Log.w(TAG, "pending login state mismatch")
+            return null
+        }
+        if (createdAt <= 0L || System.currentTimeMillis() - createdAt > TTL_MS) {
+            Log.w(TAG, "pending login expired; clearing")
+            clear(context)
+            return null
+        }
+        return Pending(verifier, storedState, redirectUri, createdAt)
+    }
+
+    fun clear(context: Context) {
+        prefs(context).edit().clear().commit()
+    }
+
+    private fun prefs(context: Context) =
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}
+
+/**
+ * Single-slot mailbox from [LibrespotAuthActivity] back to the thread blocked
+ * in [LibrespotAuth.authorizeInApp] (which is a worker thread inside the
+ * playback controller, mirroring the blocking loopback flow).
+ */
+internal object LibrespotAuthHandoff {
+    private val lock = Object()
+    private var result: Result<String>? = null
+
+    fun reset() {
+        synchronized(lock) { result = null }
+    }
+
+    fun deliver(value: Result<String>) {
+        synchronized(lock) {
+            result = value
+            lock.notifyAll()
+        }
+    }
+
+    fun await(timeoutMs: Long): String {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        synchronized(lock) {
+            while (result == null) {
+                val remaining = deadline - System.currentTimeMillis()
+                if (remaining <= 0L) {
+                    throw LibrespotAuthException(
+                        "Timed out after ${timeoutMs / 1000}s waiting for the Spotify login page"
+                    )
+                }
+                lock.wait(minOf(remaining, 1_000L))
+            }
+            return result!!.getOrThrow()
+        }
     }
 }
 

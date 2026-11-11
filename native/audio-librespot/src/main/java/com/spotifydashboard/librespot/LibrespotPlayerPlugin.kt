@@ -164,6 +164,17 @@ class LibrespotPlayerPlugin : Plugin() {
         call.resolve(stateJson(controller.state.value))
     }
 
+    /**
+     * User-initiated Spotify login for the on-device player ("Sign in to
+     * Spotify" on the card). Resolves immediately; the login page is a
+     * separate activity and the polled state reports the outcome.
+     */
+    @PluginMethod
+    fun signIn(call: PluginCall) {
+        controller.signIn()
+        call.resolve(stateJson(controller.state.value))
+    }
+
     @PluginMethod
     fun setSettings(call: PluginCall) {
         val bitrate = (call.getString("bitrate") ?: "160").toIntOrNull() ?: 160
