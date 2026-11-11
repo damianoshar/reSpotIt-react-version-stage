@@ -218,6 +218,58 @@ export async function playTrack(uri: string): Promise<void> {
 }
 
 /**
+ * Start playback of a context (album, playlist or single track) on the
+ * ACTIVE Spotify playback device.
+ *
+ * UI policy: a control labelled "Play" always targets the active playback
+ * device — never the on-device (librespot) player and never implicitly the
+ * Web Playback SDK session. Controls that target something else have to say
+ * so in their own label ("on this device").
+ *
+ * The device list is read to find the active device; when it cannot be read
+ * (missing scope, no devices) the request is sent without `device_id` and
+ * Spotify picks the active device itself.
+ */
+export async function playOnActiveDevice(
+  contextUri: string,
+  offset?: { position: number },
+): Promise<void> {
+  if (!contextUri) throw new Error('Nothing to play.');
+  let deviceId: string | null = null;
+  try {
+    deviceId = pickPlaybackDevice(await getDevices())?.id ?? null;
+  } catch {
+    deviceId = null; // no device list — let Spotify choose the active one
+  }
+  const query = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
+  try {
+    await spotifyRequest<unknown>(`/me/player/play${query}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        context_uri: contextUri,
+        ...(offset ? { offset } : {}),
+      }),
+    });
+  } catch (error) {
+    if (error instanceof SpotifyPlaybackError) {
+      if (error.status === 403) throw new Error('Premium required or no active device.');
+      if (error.status === 404) throw new Error('No active device found — open Spotify on a device first.');
+    }
+    throw error;
+  }
+}
+
+/** Play one track on the active playback device. */
+export async function playTrackOnActiveDevice(trackUri: string): Promise<void> {
+  return playOnActiveDevice(trackUri);
+}
+
+/** Play one album on the active playback device. */
+export async function playAlbumOnActiveDevice(albumId: string): Promise<void> {
+  return playOnActiveDevice('spotify:album:' + albumId);
+}
+
+/**
  * Start playback from a chosen point in the current up-next queue. Passing the
  * selected track and everything after it keeps the queue playing instead of
  * replacing playback with a single track.

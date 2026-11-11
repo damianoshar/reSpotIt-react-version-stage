@@ -52,6 +52,19 @@ export async function resolveArtists(
   return { resolved: res.resolved ?? [], unresolved: res.unresolved ?? [] };
 }
 
+/**
+ * Save albums to the signed-in account's Spotify library, using the media
+ * server's own Spotify link (remote mode). The device has no Spotify token in
+ * remote mode, so the server has to do the write.
+ */
+export async function saveRemoteAlbums(base: string, albumIds: string[]): Promise<number> {
+  if (!albumIds.length) return 0;
+  const res = await apiFetch<{ saved?: number }>(
+    base, '/api/v1/spotify/albums/save', { method: 'POST', body: { album_ids: albumIds } },
+  );
+  return res.saved ?? albumIds.length;
+}
+
 export interface FollowArtistsResult {
   total: number;
   already_followed: number;

@@ -146,6 +146,11 @@ function mapToAlbum(item: SavedAlbumItem, genreMap: Map<string, string[]>): Albu
 
 // Fix: use largest image as fallback instead of smallest.
 // The old code used sorted[sorted.length - 1] which picked the 64px thumbnail.
+//
+// PUT /me/albums accepts the album ids in a JSON body (`{"ids": [...]}`) and
+// that body takes up to 50 ids. The deprecated `?ids=` query parameter caps
+// at 20 ids, so a bigger selection used to be rejected by Spotify. DELETE
+// keeps the query parameter (it is the form the existing callers use).
 async function modifySavedAlbums(
   method: 'PUT' | 'DELETE',
   ids: string[],
@@ -156,10 +161,18 @@ async function modifySavedAlbums(
 
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
-    const res = await fetch(
-      `${SPOTIFY_API_URL}/me/albums?ids=${encodeURIComponent(chunk.join(','))}`,
-      { method, headers: { Authorization: `Bearer ${token}` } },
-    );
+    const url = method === 'PUT'
+      ? `${SPOTIFY_API_URL}/me/albums`
+      : `${SPOTIFY_API_URL}/me/albums?ids=${encodeURIComponent(chunk.join(','))}`;
+    const init: RequestInit = {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(method === 'PUT' ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(method === 'PUT' ? { body: JSON.stringify({ ids: chunk }) } : {}),
+    };
+    const res = await fetch(url, init);
     if (!res.ok) {
       if (res.status === 401) {
         throw new Error('Spotify session expired. Reconnect Spotify and try again.');

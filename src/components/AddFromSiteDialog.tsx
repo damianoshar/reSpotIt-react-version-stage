@@ -6,6 +6,7 @@ import { SPOTIFY_API_URL } from '../config/spotify';
 import { openAddFromSiteBrowser, isNativeApp } from '../services/addFromSite';
 import { unhideDuplicateIds } from '../utils/duplicateBlocklist';
 import type { SyncResult } from '../services/SyncService';
+import type { PlaylistAlbumLike } from '../types';
 import { LinkHistory } from './LinkHistory';
 import { recordRecent } from '../services/linkHistory';
 
@@ -13,7 +14,16 @@ export interface AddFromSiteDialogProps {
   open: boolean;
   onClose: () => void;
   onImportCsv: (csvText: string) => Promise<SyncResult>;
-  onImported: (result: SyncResult) => void;
+  onImported: (result: SyncResult, message?: string) => void;
+  /**
+   * Save the selected albums to the user's Spotify library.
+   * UI policy: "add to the library" must reach Spotify — writing only to the
+   * dashboard's local index is not enough.
+   */
+  onSaveToSpotify?: (albumIds: string[]) => Promise<number>;
+  onCreatePlaylist?: (name: string, albums: PlaylistAlbumLike[]) => Promise<{ id: string; name: string; tracksAdded: number }>;
+  onAddToPlaylist?: (playlistId: string, albums: PlaylistAlbumLike[]) => Promise<number>;
+  onListPlaylists?: () => Promise<{ id: string; name: string }[]>;
 }
 
 interface SiteAlbum {
@@ -51,16 +61,24 @@ async function fetchAlbum(id: string): Promise<SiteAlbum> {
   };
 }
 
-export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({ open, onClose, onImportCsv, onImported }) => {
+export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({
+  open, onClose, onImportCsv, onImported, onSaveToSpotify,
+  onCreatePlaylist, onAddToPlaylist, onListPlaylists,
+}) => {
   const [url, setUrl] = useState('https://open.spotify.com');
   const [ids, setIds] = useState<string[]>([]);
   const [metadata, setMetadata] = useState<Record<string, SiteAlbum>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [error, setError] = useState('');
   const [resultMessage, setResultMessage] = useState('');
+  const [playlistName, setPlaylistName] = useState('');
+  const [playlistTarget, setPlaylistTarget] = useState('');
+  const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>([]);
+  const [playlistsLoading, setPlaylistsLoading] = useState(false);
   const autoOpenedRef = useRef(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
 
@@ -142,6 +160,13 @@ export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({ open, onCl
     setResultMessage('');
     try {
       await unhideDuplicateIds(selectedIds);
+      // 1. Spotify first — the albums have to reach the user's Spotify
+      //    library, not only the dashboard's own index.
+      let saved = 0;
+      if (onSaveToSpotify) {
+        saved = await onSaveToSpotify(selectedIds);
+      }
+      // 2. Then the dashboard index.
       const rows = selectedIds.map((id) => {
         const meta = metadata[id];
         return {
@@ -158,12 +183,65 @@ export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({ open, onCl
         columns: ['id', 'title', 'artist', 'year', 'genre', 'image_url', 'added_at'],
       });
       const result = await onImportCsv(csv);
-      onImported(result);
-      setResultMessage(`Imported ${result.imported}, skipped ${result.skipped}, existing ${result.existing}.`);
+      const message = saved
+        ? `Saved ${saved} album(s) to your Spotify library. Imported ${result.imported}, skipped ${result.skipped}, existing ${result.existing}.`
+        : `Imported ${result.imported}, skipped ${result.skipped}, existing ${result.existing}.`;
+      onImported(result, message);
+      setResultMessage(message);
     } catch (e: any) {
       setError(e?.message ?? 'Import failed.');
     } finally {
       setImporting(false);
+    }
+  };
+
+  const loadPlaylists = async () => {
+    if (!onListPlaylists) return;
+    setPlaylistsLoading(true);
+    try {
+      setPlaylists(await onListPlaylists());
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not load playlists.');
+    } finally {
+      setPlaylistsLoading(false);
+    }
+  };
+
+  /**
+   * Add the detected albums to a playlist: a new playlist with the name the
+   * user typed, or one of the playlists they already have.
+   */
+  const addSelectedToPlaylist = async () => {
+    const selectedIds = [...selected];
+    if (!selectedIds.length) return;
+    const existing = playlistTarget;
+    const newName = playlistName.trim();
+    if (!existing && !newName) {
+      setError('Name the new playlist, or pick one of your playlists.');
+      return;
+    }
+    if (!onCreatePlaylist && !onAddToPlaylist) return;
+    setCreating(true);
+    setError('');
+    setResultMessage('');
+    try {
+      const albums: SiteAlbum[] = selectedIds.map((id) => metadata[id] ?? {
+        id, title: id, artist: 'Unknown artist', year: 0, image_url: '',
+      });
+      if (existing) {
+        if (!onAddToPlaylist) throw new Error('Adding to a playlist is not available here.');
+        const tracksAdded = await onAddToPlaylist(existing, albums);
+        const name = playlists.find((p) => p.id === existing)?.name ?? 'playlist';
+        setResultMessage(`Added ${albums.length} album(s) to “${name}” (${tracksAdded} tracks).`);
+      } else {
+        if (!onCreatePlaylist) throw new Error('Creating a playlist is not available here.');
+        const res = await onCreatePlaylist(newName, albums);
+        setResultMessage(`Created playlist “${res.name || newName}” with ${res.tracksAdded} tracks.`);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not add the albums to a playlist.');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -281,6 +359,37 @@ export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({ open, onCl
           )}
         </div>
 
+        {(onCreatePlaylist || onAddToPlaylist) && (
+          <div className="add-from-site-playlist">
+            <span className="add-from-site-playlist-label">Playlist</span>
+            <div className="add-from-site-playlist-row">
+              <input
+                className="form-input"
+                placeholder="New playlist name"
+                value={playlistName}
+                onChange={(event) => setPlaylistName(event.target.value)}
+                disabled={creating || !!playlistTarget}
+                aria-label="Name of the new playlist"
+              />
+              <select
+                className="search-input"
+                value={playlistTarget}
+                onChange={(event) => setPlaylistTarget(event.target.value)}
+                disabled={creating || playlistsLoading}
+                aria-label="Existing playlist"
+                onFocus={() => { if (!playlists.length && onListPlaylists) void loadPlaylists(); }}
+              >
+                <option value="">Create a new playlist</option>
+                {playlists.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <p className="queue-help">
+              Type a name to create a playlist, or pick one of your playlists.
+              The {selected.size} selected album(s) are added with all their tracks.
+            </p>
+          </div>
+        )}
+
         <div className="add-from-site-actions">
           <button type="button" className="sync-btn sync-btn--ghost full-width" onClick={onClose} disabled={importing}>
             Cancel
@@ -291,8 +400,18 @@ export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({ open, onCl
             disabled={importing || selected.size === 0}
             onClick={() => void importSelected()}
           >
-            {importing ? 'Importing…' : `Import selected (${selected.size})`}
+            {importing ? 'Saving…' : `Save ${selected.size} to Spotify & library`}
           </button>
+          {(onCreatePlaylist || onAddToPlaylist) && (
+            <button
+              type="button"
+              className="sync-btn"
+              disabled={creating || selected.size === 0}
+              onClick={() => void addSelectedToPlaylist()}
+            >
+              {creating ? 'Adding…' : `Add to playlist (${selected.size})`}
+            </button>
+          )}
         </div>
       </div>
     </div>
