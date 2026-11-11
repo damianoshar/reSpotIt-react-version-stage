@@ -163,6 +163,8 @@ are stored on the server and can be restored at any time).
 * The server chunks long pages, extracts `artist + album` pairs with the local
   LLM and resolves them against Spotify; the results can be saved to the
   library or turned into a playlist.
+* The scan only **finds** the albums — nothing is saved until you press one of
+  the buttons below.
 * **Save N to Spotify & library** saves the ticked albums to **your Spotify
   library** first and then to the dashboard index, and says how many were
   saved.
