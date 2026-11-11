@@ -2175,6 +2175,17 @@ body.board-autohide-bar .filter-bar, body.board-autohide-bar .pl-toolbar { trans
   gap: .5rem;
   min-width: 0;
 }
+/* The AI scan list puts the cover next to the title. Spotify serves the
+   artwork at its native size (640 px), which squeezed the title into a
+   one-character-wide column, so the thumb has to be constrained. */
+.album-thumb {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--surface-3);
+}
 .list-card__main {
   display: flex;
   flex-direction: column;
