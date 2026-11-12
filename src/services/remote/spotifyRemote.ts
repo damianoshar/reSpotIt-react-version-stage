@@ -52,6 +52,41 @@ export async function resolveArtists(
   return { resolved: res.resolved ?? [], unresolved: res.unresolved ?? [] };
 }
 
+export interface ResolvedTrack {
+  artist: string;
+  title: string;
+  spotify_id: string;
+  uri: string;
+  name: string;
+  artist_name: string;
+  album_name: string;
+  album_id: string;
+  image_url: string;
+  spotify_url: string;
+  duration_ms: number;
+}
+
+export interface UnresolvedTrack {
+  artist: string;
+  title: string;
+}
+
+/**
+ * Resolve (artist, title) pairs to Spotify tracks.
+ *
+ * Read-only: the route never writes to Spotify. The client adds the tracks to
+ * a playlist only after the user pressed the button (UI policy P9).
+ */
+export async function resolveTracks(
+  base: string,
+  items: { artist: string; title: string }[],
+): Promise<{ resolved: ResolvedTrack[]; unresolved: UnresolvedTrack[] }> {
+  const res = await apiFetch<{ resolved: ResolvedTrack[]; unresolved: UnresolvedTrack[] }>(
+    base, '/api/v1/spotify/resolve-tracks', { method: 'POST', body: { items } },
+  );
+  return { resolved: res.resolved ?? [], unresolved: res.unresolved ?? [] };
+}
+
 /**
  * Save albums to the signed-in account's Spotify library, using the media
  * server's own Spotify link (remote mode). The device has no Spotify token in

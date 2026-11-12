@@ -9,7 +9,7 @@ export interface AddFromSiteBrowserResult {
 }
 
 interface Plugin {
-  open(options: { url?: string; mode?: 'albums' | 'concerts' | 'page' }): Promise<AddFromSiteBrowserResult>;
+  open(options: { url?: string; mode?: 'albums' | 'concerts' | 'page' | 'tracks' }): Promise<AddFromSiteBrowserResult>;
 }
 
 const plugin = registerPlugin<Plugin>('AddFromSite');
@@ -47,6 +47,19 @@ export async function openAlbumPageSnapshot(
 ): Promise<{ url: string; text: string } | null> {
   if (!isNativeApp()) return null;
   const res = await plugin.open({ url, mode: 'page' });
+  if (!res || res.cancelled) return null;
+  return { url: res.url ?? '', text: res.text ?? '' };
+}
+
+/**
+ * Same rendered-page capture for tracklists (the native button reads
+ * "Scan tracks"). Feeds the captured text to /api/v1/llm/extract-tracks.
+ */
+export async function openTrackPageSnapshot(
+  url: string,
+): Promise<{ url: string; text: string } | null> {
+  if (!isNativeApp()) return null;
+  const res = await plugin.open({ url, mode: 'tracks' });
   if (!res || res.cancelled) return null;
   return { url: res.url ?? '', text: res.text ?? '' };
 }
