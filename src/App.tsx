@@ -23,6 +23,7 @@ import { SettingsView }         from './components/SettingsView';
 import { DuplicatesDialog }     from './components/DuplicatesDialog';
 import { AddFromSiteDialog }  from './components/AddFromSiteDialog';
 import { AiUrlScanDialog }    from './components/AiUrlScanDialog';
+import { AiTrackScanDialog } from './components/AiTrackScanDialog';
 import { ConcertsDialog }     from './components/ConcertsDialog';
 import { ConcertsListDialog } from './components/ConcertsListDialog';import { AIAssistantDialog }  from './components/AIAssistantDialog';
 import { ArtistDiscographyDialog } from './components/ArtistDiscographyDialog';
@@ -33,6 +34,7 @@ import { SyncPhotosProvider }     from './contexts/SyncPhotosContext';
 import { getExportAlbums, getExistingAlbumIds, upsertAlbum, saveToStore } from './services/DatabaseService';
 import { exportRemoteBackup }   from './services/remote/libraryRemote';
 import { followLibraryArtistsRemote, saveRemoteAlbums } from './services/remote/spotifyRemote';
+import type { ResolvedTrack } from './services/remote/spotifyRemote';
 import { useSpotifyAuth }       from './hooks/useSpotifyAuth';
 import { useDataSource }        from './hooks/useDataSource';
 import { useServerAuth }        from './hooks/useServerAuth';
@@ -44,8 +46,8 @@ import { usePlaylistDashboard } from './hooks/usePlaylistDashboard';
 import { usePlayerQueue }       from './hooks/usePlayerQueue';
 // Local librespot playback has been replaced by the Web Playback SDK player.
 import { Artwork }              from './components/Artwork';
-import { addAlbumsToQueue, createPlaylistFromAlbums, addAlbumsToPlaylist, getUserPlaylists } from './services/SpotifyPlaylistService';import { removeSavedAlbums, saveAlbums, getSavedAlbumArtistIds, areArtistsFollowed, followArtists } from './services/SpotifyApiService';
-import { removeRemoteAlbumsFromPlaylist, createAndAddRemotePlaylist, listRemotePlaylists, addRemoteAlbumsToPlaylist } from './services/remote/playlistRemote';import { deletePlaylistAlbums } from './services/PlaylistDatabaseService';
+import { addAlbumsToQueue, createPlaylistFromAlbums, addAlbumsToPlaylist, getUserPlaylists, createPlaylistWithUris, addTrackUrisToPlaylist } from './services/SpotifyPlaylistService';import { removeSavedAlbums, saveAlbums, getSavedAlbumArtistIds, areArtistsFollowed, followArtists } from './services/SpotifyApiService';
+import { removeRemoteAlbumsFromPlaylist, createAndAddRemotePlaylist, listRemotePlaylists, addRemoteAlbumsToPlaylist, addRemoteTrackUrisToPlaylist, createAndAddRemoteTrackPlaylist } from './services/remote/playlistRemote';import { deletePlaylistAlbums } from './services/PlaylistDatabaseService';
 import { getValidAccessToken }   from './services/SpotifyAuthService';
 import { loadSpotifyCredentials, hasSpotifyCredentials } from './services/SpotifyCredentialsService';
 import { initWebPlaybackSdk, disconnectWebPlaybackSdk } from './services/WebPlaybackSdkService';
@@ -185,6 +187,7 @@ export default function App() {
   const [aiOpen, setAiOpen] = useState(false);
   const [addFromSiteOpen, setAddFromSiteOpen] = useState(false);
   const [aiUrlScanOpen, setAiUrlScanOpen] = useState(false);
+const [aiTrackScanOpen, setAiTrackScanOpen] = useState(false);
   const [concertsScanOpen, setConcertsScanOpen] = useState(false);
   const [concertsListOpen, setConcertsListOpen] = useState(false);
   const [discographyOpen, setDiscographyOpen] = useState(false);
@@ -498,6 +501,36 @@ export default function App() {
   const handleAiScanCreatePlaylist = useCallback(async (name: string, albums: PlaylistAlbumLike[]) => {
     return handleCreateNamedPlaylist(name, albums);
   }, [handleCreateNamedPlaylist]);
+
+  /**
+   * AI track scan: append the found tracks to a playlist the user already has.
+   *
+   * The tracks go in as track URIs, so no album is added to the library and
+   * nothing else is written (UI policy P9).
+   */
+  const handleAddTracksToPlaylist = useCallback(async (
+    playlistId: string, tracks: ResolvedTrack[],
+  ): Promise<number> => {
+    const uris = tracks.map((t) => t.uri).filter(Boolean);
+    if (!uris.length) return 0;
+    if (isRemote) {
+      return addRemoteTrackUrisToPlaylist(ds.settings.serverUrl, playlistId, uris);
+    }
+    return addTrackUrisToPlaylist(playlistId, uris);
+  }, [isRemote, ds.settings.serverUrl]);
+
+  /** AI track scan: create a playlist with the name the user typed. */
+  const handleCreateTrackPlaylist = useCallback(async (name: string, tracks: ResolvedTrack[]) => {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Playlist name cannot be empty.');
+    const uris = tracks.map((t) => t.uri).filter(Boolean);
+    if (!uris.length) throw new Error('No tracks selected.');
+    if (isRemote) {
+      return createAndAddRemoteTrackPlaylist(ds.settings.serverUrl, trimmed, uris);
+    }
+    const playlist = await createPlaylistWithUris(trimmed, uris);
+    return { id: playlist.id, name: playlist.name, tracksAdded: uris.length };
+  }, [isRemote, ds.settings.serverUrl]);
   const handleRemoveSelectedFromPlaylist = useCallback(async () => {
     const pid = pld.selectedPlaylist?.id;
     if (!pid || plSel.selected.size === 0) return;
@@ -1026,6 +1059,15 @@ export default function App() {
                 >
                   {isRemote ? 'Scan page with AI (albums)' : 'Add albums from pasted links'}
                 </button>
+                <button
+                  type="button"
+                  className="sync-btn sync-btn--ghost full-width"
+                  onClick={() => setAiTrackScanOpen(true)}
+                  style={{ marginTop: '0.5rem' }}
+                  title="Scan a page with AI to extract tracks, then add them to a playlist you choose"
+                >
+                  Scan page with AI (tracks)
+                </button>
               </section>
 
               <section className="settings-section" style={{ width: '100%', marginTop: '1.5rem' }}>
@@ -1112,6 +1154,17 @@ export default function App() {
                   setAiUrlScanOpen(false);
                   showToast(message ?? 'Imported albums from the AI scan.', true);
                 }}
+                onPlaylistCreated={(name) => showToast(`Created playlist "${name}".`, true)}
+              />
+            )}
+            {aiTrackScanOpen && (
+              <AiTrackScanDialog
+                open={aiTrackScanOpen}
+                onClose={() => setAiTrackScanOpen(false)}
+                serverUrl={ds.settings.serverUrl}
+                onCreatePlaylist={handleCreateTrackPlaylist}
+                onAddToPlaylist={handleAddTracksToPlaylist}
+                onListPlaylists={handleListPlaylists}
                 onPlaylistCreated={(name) => showToast(`Created playlist "${name}".`, true)}
               />
             )}

@@ -212,6 +212,34 @@ export async function createAndAddRemotePlaylist(
 }
 
 // ---------------------------------------------------------------------------
+// Track URIs (AI track scan). The server already accepts track URIs on the
+// playlist routes, so no new route is needed.
+// ---------------------------------------------------------------------------
+
+/** Append direct track URIs to a playlist the user already has. */
+export async function addRemoteTrackUrisToPlaylist(
+  base: string, playlistId: string, uris: string[]
+): Promise<number> {
+  if (!uris.length) return 0;
+  const data = await apiFetch<{ tracks_added?: number }>(
+    base, `/api/v1/playlists/${encodeURIComponent(playlistId)}/items`,
+    { method: 'POST', body: { uris } }
+  );
+  return data.tracks_added ?? uris.length;
+}
+
+/** Create a playlist and fill it with direct track URIs. */
+export async function createAndAddRemoteTrackPlaylist(
+  base: string, name: string, uris: string[]
+): Promise<{ id: string; name: string; tracksAdded: number }> {
+  const data = await apiFetch<{ playlist_id: string; playlist_name: string; tracks_added: number }>(
+    base, '/api/v1/playlists', { method: 'POST', body: { name, uris, public: false } }
+  );
+  if (!data?.playlist_id) throw new Error('Server did not create the playlist');
+  return { id: data.playlist_id, name: data.playlist_name, tracksAdded: data.tracks_added ?? 0 };
+}
+
+// ---------------------------------------------------------------------------
 export async function removeRemoteAlbumsFromPlaylist(
   base: string, playlistId: string, albumIds: string[]
 ): Promise<{ tracksRemoved: number; albumsRemoved: number }> {

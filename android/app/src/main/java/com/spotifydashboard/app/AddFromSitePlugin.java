@@ -161,9 +161,13 @@ public class AddFromSitePlugin extends Plugin {
   private void showDialog(String initial) {
     final boolean concertsMode = "concerts".equals(mode);
     final boolean pageMode = "page".equals(mode);
-    // Both modes return rendered text instead of detected Spotify album links.
-    final boolean snapshotMode = concertsMode || pageMode;
-    final String scanLabel = concertsMode ? "Scan concerts" : pageMode ? "Scan albums" : "Scan";
+    final boolean tracksMode = "tracks".equals(mode);
+    // All three modes return rendered text instead of detected Spotify album links.
+    final boolean snapshotMode = concertsMode || pageMode || tracksMode;
+    final String scanLabel = concertsMode ? "Scan concerts"
+        : tracksMode ? "Scan tracks"
+        : pageMode ? "Scan albums"
+        : "Scan";
     String url = initial == null || initial.trim().isEmpty()
         ? "https://open.spotify.com"
         : initial.trim();
@@ -255,7 +259,7 @@ public class AddFromSitePlugin extends Plugin {
         // user taps the scan button once the listings are visible).
         if (!snapshotMode) scanPage();
         else setStatus("Page loaded. Scroll to the "
-            + (pageMode ? "albums" : "listings")
+            + (pageMode ? "albums" : tracksMode ? "tracks" : "listings")
             + ", then tap " + scanLabel + ".");
       }
 

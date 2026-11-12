@@ -2216,6 +2216,16 @@ body.board-autohide-bar .filter-bar, body.board-autohide-bar .pl-toolbar { trans
   object-fit: cover;
   background: var(--surface-3);
 }
+
+/* The AI track scan shows the album cover next to the song title. */
+.track-thumb {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--surface-3);
+}
 .list-card__main {
   display: flex;
   flex-direction: column;

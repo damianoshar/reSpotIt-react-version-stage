@@ -115,6 +115,11 @@ export interface ExtractedConcert {
   url: string;
 }
 
+export interface ExtractedTrack {
+  artist: string;
+  title: string;
+}
+
 export async function extractAlbumsFromUrl(
   serverUrl: string,
   url: string,
@@ -133,6 +138,26 @@ export async function extractAlbumsFromText(
     serverUrl, '/api/v1/llm/extract-albums', { method: 'POST', body: { text } },
   );
   return res.data?.albums ?? [];
+}
+
+export async function extractTracksFromUrl(
+  serverUrl: string,
+  url: string,
+): Promise<ExtractedTrack[]> {
+  const res = await apiFetch<{ data: { tracks: ExtractedTrack[] } }>(
+    serverUrl, '/api/v1/llm/extract-tracks', { method: 'POST', body: { url } },
+  );
+  return res.data?.tracks ?? [];
+}
+
+export async function extractTracksFromText(
+  serverUrl: string,
+  text: string,
+): Promise<ExtractedTrack[]> {
+  const res = await apiFetch<{ data: { tracks: ExtractedTrack[] } }>(
+    serverUrl, '/api/v1/llm/extract-tracks', { method: 'POST', body: { text } },
+  );
+  return res.data?.tracks ?? [];
 }
 
 export async function extractConcertsFromUrl(

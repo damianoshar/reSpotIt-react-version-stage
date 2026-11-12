@@ -1,18 +1,19 @@
 // ---------------------------------------------------------------------------
 // Recent searches + saved links for the "add from a page" entry points.
 //
-// Three dialogs share this store but keep separate buckets, so the concerts
+// Four dialogs share this store but keep separate buckets, so the concerts
 // list does not mix with album scans:
 //   concerts      — ConcertsDialog (scan concerts)
 //   albums-ai     — AiUrlScanDialog with a server (scan page with AI)
 //   albums-paste  — AiUrlScanDialog without a server (pasted Spotify links)
+//   tracks-ai     — AiTrackScanDialog (scan page with AI, tracks)
 //   site          — AddFromSiteDialog (in-app browser / detect links)
 //
 // Storage is localStorage: small, per-device, and it survives app restarts in
 // the Capacitor WebView. Nothing here is user-scoped server data.
 // ---------------------------------------------------------------------------
 
-export type LinkHistoryKind = 'concerts' | 'albums-ai' | 'albums-paste' | 'site';
+export type LinkHistoryKind = 'concerts' | 'albums-ai' | 'albums-paste' | 'tracks-ai' | 'site';
 
 /** Where a stored value belongs when picked: the URL field or the text box. */
 export type LinkTarget = 'url' | 'text';
