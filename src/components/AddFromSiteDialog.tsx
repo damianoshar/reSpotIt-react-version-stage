@@ -9,6 +9,8 @@ import type { SyncResult } from '../services/SyncService';
 import type { PlaylistAlbumLike } from '../types';
 import { LinkHistory } from './LinkHistory';
 import { recordRecent } from '../services/linkHistory';
+import { AlbumTopTracksSection } from './AlbumTopTracksSection';
+import type { AlbumTopTrack } from '../services/topTracks';
 
 export interface AddFromSiteDialogProps {
   open: boolean;
@@ -24,6 +26,17 @@ export interface AddFromSiteDialogProps {
   onCreatePlaylist?: (name: string, albums: PlaylistAlbumLike[]) => Promise<{ id: string; name: string; tracksAdded: number }>;
   onAddToPlaylist?: (playlistId: string, albums: PlaylistAlbumLike[]) => Promise<number>;
   onListPlaylists?: () => Promise<{ id: string; name: string }[]>;
+  /**
+   * Resolve the most popular track of each album (read-only).
+   */
+  onResolveTopTracks?: (albumIds: string[]) => Promise<AlbumTopTrack[]>;
+  /** Add the resolved top tracks to a playlist the user already has. */
+  onAddTopTracksToPlaylist?: (playlistId: string, tracks: AlbumTopTrack[]) => Promise<number>;
+  /** Create a playlist with the name the user typed and add the top tracks. */
+  onCreateTopTrackPlaylist?: (
+    name: string,
+    tracks: AlbumTopTrack[],
+  ) => Promise<{ id: string; name: string; tracksAdded: number }>;
 }
 
 interface SiteAlbum {
@@ -64,6 +77,7 @@ async function fetchAlbum(id: string): Promise<SiteAlbum> {
 export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({
   open, onClose, onImportCsv, onImported, onSaveToSpotify,
   onCreatePlaylist, onAddToPlaylist, onListPlaylists,
+  onResolveTopTracks, onAddTopTracksToPlaylist, onCreateTopTrackPlaylist,
 }) => {
   const [url, setUrl] = useState('https://open.spotify.com');
   const [ids, setIds] = useState<string[]>([]);
@@ -388,6 +402,17 @@ export const AddFromSiteDialog: React.FC<AddFromSiteDialogProps> = ({
               The {selected.size} selected album(s) are added with all their tracks.
             </p>
           </div>
+        )}
+
+        {onResolveTopTracks && onAddTopTracksToPlaylist && onCreateTopTrackPlaylist && (
+          <AlbumTopTracksSection
+            albumIds={[...selected]}
+            resolveTopTracks={onResolveTopTracks}
+            addToPlaylist={onAddTopTracksToPlaylist}
+            createPlaylist={onCreateTopTrackPlaylist}
+            listPlaylists={onListPlaylists ?? (async () => [])}
+            onMessage={setResultMessage}
+          />
         )}
 
         <div className="add-from-site-actions">

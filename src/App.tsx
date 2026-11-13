@@ -35,6 +35,9 @@ import { getExportAlbums, getExistingAlbumIds, upsertAlbum, saveToStore } from '
 import { exportRemoteBackup }   from './services/remote/libraryRemote';
 import { followLibraryArtistsRemote, saveRemoteAlbums } from './services/remote/spotifyRemote';
 import type { ResolvedTrack } from './services/remote/spotifyRemote';
+import { topTracksFromAlbums } from './services/remote/spotifyRemote';
+import { getAlbumTopTracks } from './services/topTracks';
+import type { AlbumTopTrack } from './services/topTracks';
 import { useSpotifyAuth }       from './hooks/useSpotifyAuth';
 import { useDataSource }        from './hooks/useDataSource';
 import { useServerAuth }        from './hooks/useServerAuth';
@@ -521,6 +524,47 @@ const [aiTrackScanOpen, setAiTrackScanOpen] = useState(false);
 
   /** AI track scan: create a playlist with the name the user typed. */
   const handleCreateTrackPlaylist = useCallback(async (name: string, tracks: ResolvedTrack[]) => {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Playlist name cannot be empty.');
+    const uris = tracks.map((t) => t.uri).filter(Boolean);
+    if (!uris.length) throw new Error('No tracks selected.');
+    if (isRemote) {
+      return createAndAddRemoteTrackPlaylist(ds.settings.serverUrl, trimmed, uris);
+    }
+    const playlist = await createPlaylistWithUris(trimmed, uris);
+    return { id: playlist.id, name: playlist.name, tracksAdded: uris.length };
+  }, [isRemote, ds.settings.serverUrl]);
+
+  /**
+   * The most popular track of each album that was found.
+   *
+   * Read-only: the ranking is resolved before the user picks a playlist, and
+   * nothing is written to Spotify here (UI policy P9).
+   */
+  const handleResolveTopTracks = useCallback(async (albumIds: string[]): Promise<AlbumTopTrack[]> => {
+    const ids = albumIds.filter(Boolean);
+    if (!ids.length) return [];
+    if (isRemote) {
+      const res = await topTracksFromAlbums(ds.settings.serverUrl, ids);
+      return res.tracks;
+    }
+    return getAlbumTopTracks(ids);
+  }, [isRemote, ds.settings.serverUrl]);
+
+  /** Add the most popular tracks to a playlist the user already has. */
+  const handleAddTopTracksToPlaylist = useCallback(async (
+    playlistId: string, tracks: AlbumTopTrack[],
+  ): Promise<number> => {
+    const uris = tracks.map((t) => t.uri).filter(Boolean);
+    if (!uris.length) return 0;
+    if (isRemote) {
+      return addRemoteTrackUrisToPlaylist(ds.settings.serverUrl, playlistId, uris);
+    }
+    return addTrackUrisToPlaylist(playlistId, uris);
+  }, [isRemote, ds.settings.serverUrl]);
+
+  /** Create a playlist with the name the user typed and add the top tracks. */
+  const handleCreateTopTrackPlaylist = useCallback(async (name: string, tracks: AlbumTopTrack[]) => {
     const trimmed = name.trim();
     if (!trimmed) throw new Error('Playlist name cannot be empty.');
     const uris = tracks.map((t) => t.uri).filter(Boolean);
@@ -1134,6 +1178,9 @@ const [aiTrackScanOpen, setAiTrackScanOpen] = useState(false);
                 onCreatePlaylist={handleCreateNamedPlaylist}
                 onAddToPlaylist={handleAddToPlaylist}
                 onListPlaylists={handleListPlaylists}
+                onResolveTopTracks={handleResolveTopTracks}
+                onAddTopTracksToPlaylist={handleAddTopTracksToPlaylist}
+                onCreateTopTrackPlaylist={handleCreateTopTrackPlaylist}
                 onImported={(_result, message) => {
                   setAddFromSiteOpen(false);
                   showToast(message ?? 'Imported albums from website.', true);
@@ -1150,6 +1197,9 @@ const [aiTrackScanOpen, setAiTrackScanOpen] = useState(false);
                 onCreatePlaylist={handleAiScanCreatePlaylist}
                 onAddToPlaylist={handleAddToPlaylist}
                 onListPlaylists={handleListPlaylists}
+                onResolveTopTracks={handleResolveTopTracks}
+                onAddTopTracksToPlaylist={handleAddTopTracksToPlaylist}
+                onCreateTopTrackPlaylist={handleCreateTopTrackPlaylist}
                 onImported={(_result, message) => {
                   setAiUrlScanOpen(false);
                   showToast(message ?? 'Imported albums from the AI scan.', true);

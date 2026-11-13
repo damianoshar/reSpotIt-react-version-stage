@@ -19,6 +19,8 @@ import { isNativeApp, openAlbumPageSnapshot } from '../services/addFromSite';
 import type { PlaylistAlbumLike } from '../types';
 import { LinkHistory } from './LinkHistory';
 import { recordRecent } from '../services/linkHistory';
+import { AlbumTopTracksSection } from './AlbumTopTracksSection';
+import type { AlbumTopTrack } from '../services/topTracks';
 
 export interface AiUrlScanDialogProps {
   open: boolean;
@@ -36,6 +38,17 @@ export interface AiUrlScanDialogProps {
   onAddToPlaylist?: (playlistId: string, albums: PlaylistAlbumLike[]) => Promise<number>;
   onListPlaylists?: () => Promise<{ id: string; name: string }[]>;
   onPlaylistCreated?: (name: string) => void;
+  /**
+   * Resolve the most popular track of each album (read-only).
+   */
+  onResolveTopTracks?: (albumIds: string[]) => Promise<AlbumTopTrack[]>;
+  /** Add the resolved top tracks to a playlist the user already has. */
+  onAddTopTracksToPlaylist?: (playlistId: string, tracks: AlbumTopTrack[]) => Promise<number>;
+  /** Create a playlist with the name the user typed and add the top tracks. */
+  onCreateTopTrackPlaylist?: (
+    name: string,
+    tracks: AlbumTopTrack[],
+  ) => Promise<{ id: string; name: string; tracksAdded: number }>;
 }
 
 const SPOTIFY_ALBUM_ID_RE = /open\.spotify\.com\/(?:embed\/)?album\/([A-Za-z0-9]{22})/gi;
@@ -70,6 +83,7 @@ async function fetchAlbum(id: string): Promise<ResolvedAlbum> {
 export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
   open, onClose, serverUrl, onImportCsv, onImported, onSaveToSpotify,
   onCreatePlaylist, onAddToPlaylist, onListPlaylists, onPlaylistCreated,
+  onResolveTopTracks, onAddTopTracksToPlaylist, onCreateTopTrackPlaylist,
 }) => {
   const [url, setUrl] = useState('');
   const [pasteText, setPasteText] = useState('');
@@ -524,6 +538,16 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
                   The {selectedAlbums.length} selected album(s) are added with all their tracks.
                 </p>
               </div>
+            )}
+            {onResolveTopTracks && onAddTopTracksToPlaylist && onCreateTopTrackPlaylist && (
+              <AlbumTopTracksSection
+                albumIds={selectedAlbums.map((a) => a.spotify_id)}
+                resolveTopTracks={onResolveTopTracks}
+                addToPlaylist={onAddTopTracksToPlaylist}
+                createPlaylist={onCreateTopTrackPlaylist}
+                listPlaylists={onListPlaylists ?? (async () => [])}
+                onMessage={setResultMessage}
+              />
             )}
             <div className="add-from-site-footer">
               <button type="button" className="sync-btn" onClick={() => void handleSave()} disabled={importing || !selectedAlbums.length}>
