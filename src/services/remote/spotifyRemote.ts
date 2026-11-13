@@ -1,4 +1,5 @@
 import { apiFetch } from './apiClient';
+import type { AlbumTopTrack } from '../topTracks';
 
 export interface ResolvedAlbum {
   artist: string;
@@ -85,6 +86,30 @@ export async function resolveTracks(
     base, '/api/v1/spotify/resolve-tracks', { method: 'POST', body: { items } },
   );
   return { resolved: res.resolved ?? [], unresolved: res.unresolved ?? [] };
+}
+
+/**
+ * The most popular track of each album, read through the media server.
+ *
+ * Read-only: the route fetches the album track lists and ranks them by
+ * Spotify popularity, but it never writes to Spotify (UI policy P9). The
+ * client adds the tracks to the playlist the user chose, and only after the
+ * user pressed the button.
+ */
+export async function topTracksFromAlbums(
+  base: string,
+  albumIds: string[],
+): Promise<{ tracks: AlbumTopTrack[]; skipped: { album_id: string; reason: string }[] }> {
+  const ids = (albumIds ?? []).map((id) => (id ?? '').trim()).filter(Boolean);
+  if (!ids.length) return { tracks: [], skipped: [] };
+  const res = await apiFetch<{
+    tracks?: AlbumTopTrack[];
+    skipped?: { album_id: string; reason: string }[];
+  }>(
+    base, '/api/v1/spotify/top-tracks-from-albums',
+    { method: 'POST', body: { album_ids: ids, per_album: 1 } },
+  );
+  return { tracks: res.tracks ?? [], skipped: res.skipped ?? [] };
 }
 
 /**
