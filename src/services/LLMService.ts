@@ -108,6 +108,16 @@ export interface ExtractedAlbum {
   album: string;
 }
 
+/**
+ * The result of an album scan. The server logs the scan in an Open WebUI
+ * chat and answers with its id, so the dialog can continue that chat
+ * instead of starting a second one.
+ */
+export interface ExtractedAlbumsResult {
+  albums: ExtractedAlbum[];
+  chatId: string | null;
+}
+
 export interface ExtractedConcert {
   artist: string;
   date: string;
@@ -123,21 +133,21 @@ export interface ExtractedTrack {
 export async function extractAlbumsFromUrl(
   serverUrl: string,
   url: string,
-): Promise<ExtractedAlbum[]> {
-  const res = await apiFetch<{ data: { albums: ExtractedAlbum[] } }>(
+): Promise<ExtractedAlbumsResult> {
+  const res = await apiFetch<{ data: { albums: ExtractedAlbum[] }; chat_id?: string | null }>(
     serverUrl, '/api/v1/llm/extract-albums', { method: 'POST', body: { url } },
   );
-  return res.data?.albums ?? [];
+  return { albums: res.data?.albums ?? [], chatId: res.chat_id ?? null };
 }
 
 export async function extractAlbumsFromText(
   serverUrl: string,
   text: string,
-): Promise<ExtractedAlbum[]> {
-  const res = await apiFetch<{ data: { albums: ExtractedAlbum[] } }>(
+): Promise<ExtractedAlbumsResult> {
+  const res = await apiFetch<{ data: { albums: ExtractedAlbum[] }; chat_id?: string | null }>(
     serverUrl, '/api/v1/llm/extract-albums', { method: 'POST', body: { text } },
   );
-  return res.data?.albums ?? [];
+  return { albums: res.data?.albums ?? [], chatId: res.chat_id ?? null };
 }
 
 export async function extractTracksFromUrl(

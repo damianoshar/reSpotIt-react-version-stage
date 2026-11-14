@@ -139,9 +139,13 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
       if (url.trim()) recordRecent(historyKind, url.trim(), 'url');
       else if (pasteText.trim()) recordRecent(historyKind, pasteText.trim(), 'text');
       if (serverUrl) {
-        const extracted = url.trim()
+        const scan = url.trim()
           ? await extractAlbumsFromUrl(serverUrl, url.trim())
           : await extractAlbumsFromText(serverUrl, pasteText.trim());
+        const extracted = scan.albums;
+        // The server logs the scan in an Open WebUI chat; keep its id so the
+        // follow-up turn lands in that same chat.
+        if (scan.chatId) setChatId(scan.chatId);
         if (!extracted.length) {
           setError('AI found no albums on this page.');
           setAlbums([]); setUnresolved([]);
@@ -194,7 +198,9 @@ export const AiUrlScanDialog: React.FC<AiUrlScanDialogProps> = ({
         setError('The page had no readable text. Wait for it to finish loading, then try again.');
         return;
       }
-      const extracted = await extractAlbumsFromText(serverUrl, text);
+      const scan = await extractAlbumsFromText(serverUrl, text);
+      const extracted = scan.albums;
+      if (scan.chatId) setChatId(scan.chatId);
       if (!extracted.length) {
         setError('AI found no albums on this page.');
         return;
