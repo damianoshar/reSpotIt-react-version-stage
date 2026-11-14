@@ -87,9 +87,20 @@ async function doInitDB(): Promise<void> {
       image_url    TEXT DEFAULT '',
       track_count  INTEGER DEFAULT 1,
       track_titles TEXT DEFAULT '[]',
+      position     INTEGER DEFAULT 0,
       PRIMARY KEY (playlist_id, album_id)
     )
   `);
+  // Additive column for DBs created before the playlist position existed.
+  {
+    const info = await db.query('PRAGMA table_info(playlist_albums)');
+    const cols = new Set<string>(
+      ((info.values ?? []) as { name: string }[]).map((c) => c.name)
+    );
+    if (!cols.has('position')) {
+      await db.execute('ALTER TABLE playlist_albums ADD COLUMN position INTEGER DEFAULT 0');
+    }
+  }
   await db.execute(`
     CREATE TABLE IF NOT EXISTS concerts (
       id            TEXT PRIMARY KEY,
