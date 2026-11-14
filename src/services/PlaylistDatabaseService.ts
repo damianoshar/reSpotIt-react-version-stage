@@ -55,13 +55,13 @@ export async function savePlaylistAlbums(
   // Replace all albums for this playlist in one transaction
   await db.run('DELETE FROM playlist_albums WHERE playlist_id = ?', [playlistId]);
 
-  for (const a of albums) {
+  for (const [index, a] of albums.entries()) {
     await db.run(
       `INSERT OR REPLACE INTO playlist_albums
-         (playlist_id, album_id, title, artist, year, genre, image_url, track_count, track_titles)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (playlist_id, album_id, title, artist, year, genre, image_url, track_count, track_titles, position)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [playlistId, a.id, a.title, a.artist, a.year, a.genre, a.image_url,
-       a.trackCount, JSON.stringify(a.trackTitles)]
+       a.trackCount, JSON.stringify(a.trackTitles), index]
     );
   }
 
@@ -93,13 +93,18 @@ export async function loadPlaylistAlbums(
 ): Promise<PlaylistAlbum[]> {
   const db = await ensureDb();
   const { where, params } = buildWhere(playlistId, search, genre, yearFrom, yearTo, artist);
-  const allowed = new Set(['title', 'artist', 'year', 'genre', 'track_count']);
+  // 'added_at' is the album's position in the playlist - Spotify has no date
+  // for a playlist item, so the position is what "Date Added" means.
+  const allowed = new Set(['title', 'artist', 'year', 'genre', 'track_count', 'added_at']);
   const col     = allowed.has(sortField) ? sortField : 'artist';
   const dir     = sortOrder === 'desc' ? 'DESC' : 'ASC';
+  // Numbers sort numerically; text sorts case-insensitively.
+  const numeric = new Set(['year', 'track_count', 'added_at']);
+  const orderBy = numeric.has(col) ? col : `LOWER(${col})`;
 
   const result = await db.query(
     `SELECT * FROM playlist_albums ${where}
-     ORDER BY LOWER(${col}) ${dir} LIMIT ? OFFSET ?`,
+     ORDER BY ${orderBy} ${dir} LIMIT ? OFFSET ?`,
     [...params, limit, offset]
   );
 

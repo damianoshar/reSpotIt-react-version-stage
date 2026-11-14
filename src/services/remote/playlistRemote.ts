@@ -17,6 +17,8 @@ interface RemotePlaylistItem {
   track_count: number;
   public:      boolean;
   synced_at:   string | null;
+  /** Spotify's /me/playlists position (0 = most recently added). */
+  added_order?: number | null;
 }
 
 interface RemotePlaylistGroup {
@@ -44,6 +46,9 @@ function mapPlaylist(p: RemotePlaylistItem): SpotifyPlaylist {
     images: p.image_url ? [{ url: p.image_url }] : [],
     tracks: { total: p.track_count ?? 0 },
     owner:  { id: '' },
+    // The server reports the position in Spotify's /me/playlists order, which
+    // is what the picker's "Date Added" chip sorts on.
+    addedOrder: p.added_order ?? undefined,
   };
 }
 
@@ -66,8 +71,9 @@ function yearParam(val: number | ''): string {
 }
 
 function sortParam(sortField: string): string {
-  // Local 'added_at' has no server equivalent for playlist albums — fall back.
-  return sortField === 'added_at' ? 'artist' : sortField;
+  // 'added_at' is the album's position in the playlist - the server sorts by
+  // it. Every other sort field has the same name on both sides.
+  return sortField;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,13 +109,17 @@ export async function queryRemotePlaylistAlbums(
     search:    f.search,
     genre:     f.genre,
     artist:    f.artist,
-    year_from: yearParam(f.yearFrom),
-    year_to:   yearParam(f.yearTo),
     sort:      sortParam(f.sortField),
     order:     f.sortOrder,
     page:      String(page),
     limit:     String(limit),
   });
+  // Only send the year filters the user actually set. An empty filter used to
+  // go out as "year_from=" and the server rejected the whole request.
+  const yf = yearParam(f.yearFrom);
+  const yt = yearParam(f.yearTo);
+  if (yf) q.set('year_from', yf);
+  if (yt) q.set('year_to', yt);
   const data = await apiFetch<PlaylistAlbumsPage>(
     base, `/api/v1/playlists/${encodeURIComponent(playlistId)}/albums?` + q.toString()
   );
